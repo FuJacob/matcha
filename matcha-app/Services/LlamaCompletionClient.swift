@@ -1,8 +1,6 @@
 import Foundation
 
-private struct InfillRequestBody: Encodable {
-    let inputPrefix: String
-    let inputSuffix: String
+private struct CompletionRequestBody: Encodable {
     let prompt: String
     let idSlot: Int
     let cachePrompt: Bool
@@ -13,8 +11,6 @@ private struct InfillRequestBody: Encodable {
     let stop: [String]
 
     enum CodingKeys: String, CodingKey {
-        case inputPrefix = "input_prefix"
-        case inputSuffix = "input_suffix"
         case prompt
         case idSlot = "id_slot"
         case cachePrompt = "cache_prompt"
@@ -77,9 +73,7 @@ final class LlamaCompletionClient {
     }
 
     private func fetchCompletion(baseURL: URL, request: SuggestionRequest) async throws -> String {
-        let body = InfillRequestBody(
-            inputPrefix: request.inputPrefix,
-            inputSuffix: request.inputSuffix,
+        let body = CompletionRequestBody(
             prompt: request.prompt,
             idSlot: 0,
             cachePrompt: true,
@@ -93,7 +87,7 @@ final class LlamaCompletionClient {
         let encoder = JSONEncoder()
         let bodyData = try encoder.encode(body)
 
-        var urlRequest = URLRequest(url: baseURL.appending(path: "infill"))
+        var urlRequest = URLRequest(url: baseURL.appending(path: "completion"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = bodyData
@@ -123,10 +117,10 @@ final class LlamaCompletionClient {
     private func normalizeSuggestion(_ rawSuggestion: String, for request: SuggestionRequest) -> String {
         var normalized = rawSuggestion.replacingOccurrences(of: "\r", with: "")
 
-        // Some local models echo part of the prompt. Stripping that here keeps the UI focused on
-        // the predicted continuation instead of transport noise.
-        if !request.prompt.isEmpty, let echoedPromptRange = normalized.range(of: request.prompt) {
-            normalized = String(normalized[echoedPromptRange.upperBound...])
+        // Some models echo the prompt before the actual continuation. We only strip exact
+        // prefix echoes so we do not accidentally remove legitimate repeated text later on.
+        if !request.prompt.isEmpty, normalized.hasPrefix(request.prompt) {
+            normalized.removeFirst(request.prompt.count)
         }
 
         if let firstLine = normalized.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first {
@@ -139,11 +133,11 @@ final class LlamaCompletionClient {
             normalized = String(normalized.prefix(120))
         }
 
-        if !request.context.trailingText.isEmpty, normalized == request.context.trailingText {
+        if normalized.isEmpty {
             return ""
         }
 
-        if !normalized.isEmpty, !request.context.trailingText.isEmpty, request.context.trailingText.hasPrefix(normalized) {
+        if !request.context.trailingText.isEmpty, normalized == request.context.trailingText {
             return ""
         }
 

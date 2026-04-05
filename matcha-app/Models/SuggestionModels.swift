@@ -66,8 +66,6 @@ struct FocusedInputContext: Equatable {
 
 struct SuggestionRequest: Equatable {
     let context: FocusedInputContext
-    let inputPrefix: String
-    let inputSuffix: String
     let prompt: String
     let generation: UInt64
     let maxPredictionTokens: Int
@@ -117,9 +115,9 @@ enum SuggestionDebugState: Equatable {
         case .debouncing:
             return "Waiting for typing to settle."
         case .generating:
-            return "Requesting an infill from the local runtime."
+            return "Requesting a completion from the local runtime."
         case .ready:
-            return "Ready means Matcha has accepted a non-empty normalized suggestion."
+            return "Ready means Matcha has buffered a non-empty normalized completion for this field."
         }
     }
 }

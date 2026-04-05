@@ -9,6 +9,7 @@ final class SuggestionDebugModel: ObservableObject {
     @Published private(set) var latestError: String?
     @Published private(set) var latestLatencyMilliseconds: Int?
     @Published private(set) var latestStageMessage = "Idle"
+    @Published private(set) var latestRequestPreview: String?
     @Published private(set) var latestPromptPreview: String?
     @Published private(set) var latestRawModelOutput: String?
     @Published private(set) var latestGenerationNumber: UInt64?
@@ -16,6 +17,7 @@ final class SuggestionDebugModel: ObservableObject {
     private let permissionManager: PermissionManager
     private let focusModel: FocusTrackingModel
     private let inputMonitor: InputMonitor
+    private let suggestionInserter: SuggestionInserter
     private let completionClient: LlamaCompletionClient
     private let contextBuffer: ContextBuffer
     private let configuration: SuggestionConfiguration
@@ -25,11 +27,14 @@ final class SuggestionDebugModel: ObservableObject {
     private var generationTask: Task<Void, Never>?
     private var latestWorkID: UInt64 = 0
     private var lastLoggedMessage: String?
+    private var readyContext: FocusedInputContext?
+    private var readyResult: SuggestionResult?
 
     init(
         permissionManager: PermissionManager,
         focusModel: FocusTrackingModel,
         inputMonitor: InputMonitor,
+        suggestionInserter: SuggestionInserter,
         completionClient: LlamaCompletionClient,
         contextBuffer: ContextBuffer,
         configuration: SuggestionConfiguration
@@ -37,6 +42,7 @@ final class SuggestionDebugModel: ObservableObject {
         self.permissionManager = permissionManager
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
+        self.suggestionInserter = suggestionInserter
         self.completionClient = completionClient
         self.contextBuffer = contextBuffer
         self.configuration = configuration
@@ -54,7 +60,11 @@ final class SuggestionDebugModel: ObservableObject {
             .store(in: &cancellables)
 
         inputMonitor.onEvent = { [weak self] event in
-            self?.handleInputEvent(event)
+            self?.handleInputEvent(event) ?? false
+        }
+
+        inputMonitor.onSuppressedSyntheticInput = { [weak self] in
+            self?.handleSuppressedSyntheticInput()
         }
     }
 
@@ -65,6 +75,7 @@ final class SuggestionDebugModel: ObservableObject {
     func stop() {
         cancelPredictionWork()
         inputMonitor.onEvent = nil
+        inputMonitor.onSuppressedSyntheticInput = nil
     }
 
     private func handlePermissionChange() {
@@ -82,7 +93,7 @@ final class SuggestionDebugModel: ObservableObject {
             if let currentContext = contextBuffer.currentContext,
                let focusedContext = snapshot.context,
                currentContext.elementIdentifier != focusedContext.elementIdentifier {
-                clearSuggestion()
+                clearSuggestion(clearDiagnostics: true)
                 state = .idle
             } else if case .disabled = state {
                 latestError = nil
@@ -94,15 +105,19 @@ final class SuggestionDebugModel: ObservableObject {
         }
     }
 
-    private func handleInputEvent(_ event: CapturedInputEvent) {
+    private func handleInputEvent(_ event: CapturedInputEvent) -> Bool {
         guard permissionManager.inputMonitoringGranted else {
             disablePredictions(reason: "Input Monitoring permission is required before Matcha can react to typing.")
-            return
+            return false
+        }
+
+        if event.kind == .tab {
+            return acceptCurrentSuggestion()
         }
 
         if event.shouldClearSuggestion {
             cancelPredictionWork()
-            clearSuggestion()
+            clearSuggestion(clearDiagnostics: true)
             if !event.shouldSchedulePrediction {
                 state = .idle
             }
@@ -111,6 +126,17 @@ final class SuggestionDebugModel: ObservableObject {
         if event.shouldSchedulePrediction {
             schedulePrediction()
         }
+
+        return false
+    }
+
+    private func handleSuppressedSyntheticInput() {
+        logStage(
+            "suppressed-synthetic-input",
+            workID: latestWorkID,
+            generation: latestGenerationNumber,
+            message: "Ignored Matcha's own synthetic key event."
+        )
     }
 
     private func schedulePrediction() {
@@ -173,20 +199,14 @@ final class SuggestionDebugModel: ObservableObject {
         }
 
         let context = contextBuffer.materialize(from: rawContext)
-        let infillContext = trimPromptContext(from: context)
-        let prompt = buildPrompt()
-        let requestPreview = buildRequestPreview(
-            inputPrefix: infillContext.inputPrefix,
-            inputSuffix: infillContext.inputSuffix,
-            prompt: prompt
-        )
+        let prompt = buildPrompt(from: context)
+        let requestPreview = buildRequestPreview(prompt: prompt)
         latestGenerationNumber = context.generation
-        latestPromptPreview = requestPreview
+        latestRequestPreview = requestPreview
+        latestPromptPreview = prompt
         latestRawModelOutput = nil
         let request = SuggestionRequest(
             context: context,
-            inputPrefix: infillContext.inputPrefix,
-            inputSuffix: infillContext.inputSuffix,
             prompt: prompt,
             generation: context.generation,
             maxPredictionTokens: configuration.maxPredictionTokens,
@@ -199,7 +219,7 @@ final class SuggestionDebugModel: ObservableObject {
             "generating",
             workID: workID,
             generation: context.generation,
-            message: "Requesting an infill for \(context.elementIdentifier).",
+            message: "Requesting a completion for \(context.elementIdentifier).",
             prompt: requestPreview
         )
 
@@ -283,6 +303,8 @@ final class SuggestionDebugModel: ObservableObject {
         latestSuggestionPreview = result.text
         latestLatencyMilliseconds = Int(result.latency * 1000)
         latestError = nil
+        readyContext = liveContext
+        readyResult = result
         state = .ready(text: result.text, latency: result.latency)
         logStage(
             "ready",
@@ -299,8 +321,7 @@ final class SuggestionDebugModel: ObservableObject {
             return
         }
 
-        latestSuggestionPreview = nil
-        latestLatencyMilliseconds = nil
+        clearSuggestion()
         latestError = message
         state = .failed(message)
         logStage("failed", workID: workID, generation: latestGenerationNumber, message: message)
@@ -326,17 +347,24 @@ final class SuggestionDebugModel: ObservableObject {
     private func disablePredictions(reason: String) {
         cancelPredictionWork()
         contextBuffer.clear()
-        latestSuggestionPreview = nil
-        latestLatencyMilliseconds = nil
+        clearSuggestion(clearDiagnostics: true)
         latestError = reason
-        latestGenerationNumber = nil
         state = .disabled(reason)
         latestStageMessage = "Disabled: \(reason)"
     }
 
-    private func clearSuggestion() {
+    private func clearSuggestion(clearDiagnostics: Bool = false) {
         latestSuggestionPreview = nil
         latestLatencyMilliseconds = nil
+        readyContext = nil
+        readyResult = nil
+
+        if clearDiagnostics {
+            latestRequestPreview = nil
+            latestPromptPreview = nil
+            latestRawModelOutput = nil
+            latestGenerationNumber = nil
+        }
     }
 
     private func cancelPredictionWork() {
@@ -347,16 +375,10 @@ final class SuggestionDebugModel: ObservableObject {
         latestWorkID &+= 1
     }
 
-    private func buildPrompt() -> String {
-        // `/infill` inserts the model-specific FIM tokens internally, so the extra prompt after
-        // the middle marker can stay empty for a pure gap-filling request.
-        return ""
-    }
-
-    private func trimPromptContext(from context: FocusedInputContext) -> (inputPrefix: String, inputSuffix: String) {
-        let trimmedPrefix = String(context.precedingText.suffix(configuration.maxPrefixCharacters))
-        let trimmedSuffix = String(context.trailingText.prefix(configuration.maxSuffixCharacters))
-        return (trimmedPrefix, trimmedSuffix)
+    private func buildPrompt(from context: FocusedInputContext) -> String {
+        // For the plain `/completion` rollback we only send text before the caret.
+        // That keeps the payload minimal and matches the simpler baseline behavior.
+        String(context.precedingText.suffix(configuration.maxPrefixCharacters))
     }
 
     private func nextWorkID() -> UInt64 {
@@ -364,13 +386,86 @@ final class SuggestionDebugModel: ObservableObject {
         return latestWorkID
     }
 
-    private func buildRequestPreview(inputPrefix: String, inputSuffix: String, prompt: String) -> String {
+    private func buildRequestPreview(prompt: String) -> String {
         """
-        POST /infill
-        input_prefix: \(inputPrefix)
-        input_suffix: \(inputSuffix)
+        POST /completion
         prompt: \(prompt.isEmpty ? "<empty>" : prompt)
         """
+    }
+
+    private func acceptCurrentSuggestion() -> Bool {
+        focusModel.refreshNow()
+        let snapshot = focusModel.snapshot
+
+        guard permissionManager.inputMonitoringGranted else {
+            return passTabThrough(reason: "Input Monitoring permission is required before Matcha can accept Tab.")
+        }
+
+        guard case .supported = snapshot.capability, let rawContext = snapshot.context else {
+            return passTabThrough(reason: snapshot.capability.summary)
+        }
+
+        guard case .ready = state, let readyResult, let readyContext else {
+            return passTabThrough(reason: "Tab passed through because no valid suggestion was ready.")
+        }
+
+        guard rawContext.selection.length == 0 else {
+            return passTabThrough(reason: "Tab passed through because text is currently selected.")
+        }
+
+        let liveContext = contextBuffer.materialize(from: rawContext)
+        guard liveContext.elementIdentifier == readyContext.elementIdentifier else {
+            return passTabThrough(reason: "Tab passed through because the focused field changed.")
+        }
+
+        guard liveContext.generation == readyResult.generation else {
+            return passTabThrough(reason: "Tab passed through because the ready suggestion became stale.")
+        }
+
+        guard suggestionInserter.insert(readyResult.text) else {
+            let message = suggestionInserter.lastErrorMessage ?? "Suggestion insertion failed."
+            latestError = message
+            cancelPredictionWork()
+            clearSuggestion(clearDiagnostics: true)
+            state = .idle
+            logStage(
+                "insert-failed",
+                workID: latestWorkID,
+                generation: readyResult.generation,
+                message: message,
+                normalizedOutput: readyResult.text
+            )
+            return false
+        }
+
+        latestError = nil
+        cancelPredictionWork()
+        clearSuggestion(clearDiagnostics: true)
+        focusModel.refreshNow()
+        state = .idle
+        logStage(
+            "tab-accepted",
+            workID: latestWorkID,
+            generation: readyResult.generation,
+            message: "Inserted the ready suggestion and consumed Tab.",
+            normalizedOutput: readyResult.text
+        )
+        return true
+    }
+
+    private func passTabThrough(reason: String) -> Bool {
+        let generation = latestGenerationNumber
+        cancelPredictionWork()
+        clearSuggestion(clearDiagnostics: true)
+        latestError = nil
+        state = .idle
+        logStage(
+            "tab-passed-through",
+            workID: latestWorkID,
+            generation: generation,
+            message: reason
+        )
+        return false
     }
 
     private func logStage(

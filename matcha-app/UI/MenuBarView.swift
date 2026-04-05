@@ -153,6 +153,18 @@ struct MenuBarView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if let requestPreview = suggestionModel.latestRequestPreview, !requestPreview.isEmpty {
+                    Text("Request")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(requestPreview)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(6)
+                }
+
                 if let promptPreview = suggestionModel.latestPromptPreview, !promptPreview.isEmpty {
                     Text("Prompt")
                         .font(.caption)

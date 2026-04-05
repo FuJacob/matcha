@@ -4,6 +4,7 @@ import Foundation
 /// Only the event categories needed for typing-triggered prediction are modeled here.
 struct CapturedInputEvent: Equatable {
     enum Kind: String, Equatable {
+        case tab
         case textMutation
         case navigation
         case shortcutMutation
@@ -29,26 +30,32 @@ struct CapturedInputEvent: Equatable {
         switch kind {
         case .textMutation, .navigation, .shortcutMutation, .dismissal:
             return true
-        case .other:
+        case .tab, .other:
             return false
         }
     }
 }
 
-/// Installs a listen-only session event tap.
-/// We observe typing here, but we do not intercept or mutate host app input in this slice.
+/// Installs a session event tap.
+/// We still observe normal typing, but we can now consume `Tab` when Matcha has a valid suggestion.
 @MainActor
 final class InputMonitor {
-    var onEvent: ((CapturedInputEvent) -> Void)?
+    var onEvent: ((CapturedInputEvent) -> Bool)?
     var onTapStateChange: ((Bool) -> Void)?
+    var onSuppressedSyntheticInput: (() -> Void)?
 
     private let permissionProvider: @MainActor () -> Bool
+    private let suppressionController: InputSuppressionController
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
-    init(permissionProvider: @escaping @MainActor () -> Bool) {
+    init(
+        permissionProvider: @escaping @MainActor () -> Bool,
+        suppressionController: InputSuppressionController
+    ) {
         self.permissionProvider = permissionProvider
+        self.suppressionController = suppressionController
     }
 
     func start() {
@@ -88,7 +95,7 @@ final class InputMonitor {
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: .defaultTap,
             eventsOfInterest: CGEventMask(mask),
             callback: callback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -133,8 +140,14 @@ final class InputMonitor {
             return Unmanaged.passUnretained(event)
 
         case .keyDown:
-            onEvent?(classify(event: event))
-            return Unmanaged.passUnretained(event)
+            if suppressionController.consumeIfNeeded() {
+                onSuppressedSyntheticInput?()
+                return Unmanaged.passUnretained(event)
+            }
+
+            let capturedEvent = classify(event: event)
+            let shouldIntercept = onEvent?(capturedEvent) ?? false
+            return shouldIntercept ? nil : Unmanaged.passUnretained(event)
 
         default:
             return Unmanaged.passUnretained(event)
@@ -145,6 +158,10 @@ final class InputMonitor {
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
         let characters = event.unicodeString
+
+        if keyCode == 48, flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty {
+            return CapturedInputEvent(kind: .tab, keyCode: keyCode, characters: characters, flags: flags)
+        }
 
         // We classify events by behavior instead of raw key codes alone.
         // That keeps the prediction layer coupled to "what happened" rather than "which key fired."

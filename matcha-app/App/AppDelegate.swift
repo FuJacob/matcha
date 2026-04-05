@@ -10,23 +10,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let focusModel: FocusTrackingModel
     let inputMonitor: InputMonitor
     let suggestionModel: SuggestionDebugModel
+    private let suppressionController: InputSuppressionController
+    private let suggestionInserter: SuggestionInserter
 
     private var cancellables = Set<AnyCancellable>()
 
     override init() {
         let permissionManager = PermissionManager()
         let serverManager = LlamaServerManager()
-        let inputMonitor = InputMonitor(permissionProvider: { permissionManager.inputMonitoringGranted })
+        let suppressionController = InputSuppressionController()
+        let inputMonitor = InputMonitor(
+            permissionProvider: { permissionManager.inputMonitoringGranted },
+            suppressionController: suppressionController
+        )
         let focusModel = FocusTrackingModel(
             pollInterval: 0.25,
             permissionProvider: { permissionManager.accessibilityGranted },
             ignoredBundleIdentifier: Bundle.main.bundleIdentifier
         )
         let runtimeModel = RuntimeBootstrapModel(serverManager: serverManager)
+        let suggestionInserter = SuggestionInserter(suppressionController: suppressionController)
         let suggestionModel = SuggestionDebugModel(
             permissionManager: permissionManager,
             focusModel: focusModel,
             inputMonitor: inputMonitor,
+            suggestionInserter: suggestionInserter,
             completionClient: LlamaCompletionClient(serverManager: serverManager),
             contextBuffer: ContextBuffer(),
             configuration: .debugDefaults
@@ -38,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
         self.suggestionModel = suggestionModel
+        self.suppressionController = suppressionController
+        self.suggestionInserter = suggestionInserter
         super.init()
 
         permissionManager.$inputMonitoringGranted
