@@ -669,7 +669,7 @@ final class SuggestionCoordinator: ObservableObject {
                     return
                 }
 
-                await applyInjectedVisualContext(
+                applyInjectedVisualContext(
                     injectedContext,
                     for: session.sessionID,
                     elementIdentifier: snapshotContext.elementIdentifier
@@ -677,12 +677,12 @@ final class SuggestionCoordinator: ObservableObject {
             } catch is CancellationError {
                 return
             } catch let error as ScreenshotContextGenerationError {
-                await setVisualContextStatus(
+                setVisualContextStatus(
                     errorStatus(for: error),
                     for: session.sessionID
                 )
             } catch {
-                await setVisualContextStatus(
+                setVisualContextStatus(
                     .failed(error.localizedDescription),
                     for: session.sessionID
                 )

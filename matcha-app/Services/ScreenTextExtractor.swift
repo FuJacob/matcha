@@ -1,6 +1,6 @@
 import CoreGraphics
 import Foundation
-import Vision
+@preconcurrency import Vision
 
 /// File overview:
 /// Runs OCR over a captured window screenshot and returns a reading-order text excerpt.
@@ -45,41 +45,41 @@ struct ScreenTextExtractor {
         let preparedImage = downsampledImageIfNeeded(image)
 
         return try await withCheckedThrowingContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, error in
-                if let error {
-                    continuation.resume(throwing: ScreenTextExtractionError.ocrFailed(error.localizedDescription))
-                    return
-                }
-
-                let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
-                let orderedLines = observations
-                    .sorted {
-                        if abs($0.boundingBox.minY - $1.boundingBox.minY) > 0.02 {
-                            return $0.boundingBox.minY > $1.boundingBox.minY
-                        }
-
-                        return $0.boundingBox.minX < $1.boundingBox.minX
-                    }
-                    .compactMap { $0.topCandidates(1).first?.string }
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-
-                let joinedText = orderedLines.joined(separator: "\n")
-                let cappedText = String(joinedText.prefix(maxRecognizedCharacters))
-
-                guard !cappedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    continuation.resume(throwing: ScreenTextExtractionError.noRecognizedText)
-                    return
-                }
-
-                continuation.resume(returning: ExtractedScreenText(text: cappedText, lineCount: orderedLines.count))
-            }
-
-            request.recognitionLevel = .fast
-            request.usesLanguageCorrection = false
-            request.minimumTextHeight = 0.012
-
             DispatchQueue.global(qos: .userInitiated).async {
+                let request = VNRecognizeTextRequest { request, error in
+                    if let error {
+                        continuation.resume(throwing: ScreenTextExtractionError.ocrFailed(error.localizedDescription))
+                        return
+                    }
+
+                    let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
+                    let orderedLines = observations
+                        .sorted {
+                            if abs($0.boundingBox.minY - $1.boundingBox.minY) > 0.02 {
+                                return $0.boundingBox.minY > $1.boundingBox.minY
+                            }
+
+                            return $0.boundingBox.minX < $1.boundingBox.minX
+                        }
+                        .compactMap { $0.topCandidates(1).first?.string }
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+
+                    let joinedText = orderedLines.joined(separator: "\n")
+                    let cappedText = String(joinedText.prefix(maxRecognizedCharacters))
+
+                    guard !cappedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        continuation.resume(throwing: ScreenTextExtractionError.noRecognizedText)
+                        return
+                    }
+
+                    continuation.resume(returning: ExtractedScreenText(text: cappedText, lineCount: orderedLines.count))
+                }
+
+                request.recognitionLevel = .fast
+                request.usesLanguageCorrection = false
+                request.minimumTextHeight = 0.012
+
                 do {
                     let handler = VNImageRequestHandler(cgImage: preparedImage, options: [:])
                     try handler.perform([request])
