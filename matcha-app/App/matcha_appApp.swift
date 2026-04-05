@@ -8,9 +8,15 @@ struct matcha_appApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(runtimeModel: appDelegate.runtimeModel)
+            MenuBarView(
+                permissionManager: appDelegate.permissionManager,
+                runtimeModel: appDelegate.runtimeModel,
+                focusModel: appDelegate.focusModel
+            )
         } label: {
-            Image(systemName: appDelegate.runtimeModel.menuBarIconName)
+            MenuBarStatusLabelView(
+                focusModel: appDelegate.focusModel
+            )
         }
         .menuBarExtraStyle(.window)
     }
