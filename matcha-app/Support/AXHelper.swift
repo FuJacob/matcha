@@ -222,25 +222,20 @@ enum AXHelper {
         knownReadOnlyRoles.contains(role)
     }
 
-    /// AX returns screen pixels; AppKit rendering uses Cocoa points and a flipped Y axis.
+    /// AX bounds from the text-range APIs are already in global screen coordinates that line up
+    /// with AppKit point space. The only conversion Matcha should do here is the Y-axis flip
+    /// into Cocoa's bottom-left origin.
     static func cocoaRect(fromAccessibilityRect rect: CGRect) -> CGRect {
         guard !rect.isNull, rect != .zero else {
             return rect
         }
 
         for screen in NSScreen.screens {
-            let scale = screen.backingScaleFactor
-            let scaledRect = CGRect(
-                x: rect.origin.x / scale,
-                y: rect.origin.y / scale,
-                width: rect.width / scale,
-                height: rect.height / scale
-            )
             let converted = CGRect(
-                x: scaledRect.origin.x,
-                y: screen.frame.maxY - scaledRect.origin.y - scaledRect.height,
-                width: scaledRect.width,
-                height: scaledRect.height
+                x: rect.origin.x,
+                y: screen.frame.maxY - rect.origin.y - rect.height,
+                width: rect.width,
+                height: rect.height
             )
 
             if converted.intersects(screen.frame.insetBy(dx: -48, dy: -48)) {
@@ -252,19 +247,11 @@ enum AXHelper {
             return rect
         }
 
-        let scale = mainScreen.backingScaleFactor
-        let scaledRect = CGRect(
-            x: rect.origin.x / scale,
-            y: rect.origin.y / scale,
-            width: rect.width / scale,
-            height: rect.height / scale
-        )
-
         return CGRect(
-            x: scaledRect.origin.x,
-            y: mainScreen.frame.maxY - scaledRect.origin.y - scaledRect.height,
-            width: scaledRect.width,
-            height: scaledRect.height
+            x: rect.origin.x,
+            y: mainScreen.frame.maxY - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
         )
     }
 }
