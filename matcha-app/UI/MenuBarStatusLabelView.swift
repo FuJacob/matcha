@@ -15,6 +15,6 @@ struct MenuBarStatusLabelView: View {
         Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
             .resizable()
             .scaledToFit()
-            .frame(width: 18, height: 18)
+            .frame(width: 16, height: 16)
     }
 }
