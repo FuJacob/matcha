@@ -36,7 +36,11 @@ struct WindowScreenshotService {
     /// Finds the most relevant visible window for the focused process and captures it as a `CGImage`.
     /// We prefer active on-screen windows and then fall back to any visible window owned by the app.
     func captureFrontmostWindow(processIdentifier: pid_t) async throws -> CapturedWindowScreenshot {
+        let startedAt = Date()
+        log("capture-start pid=\(processIdentifier)")
+
         guard CGPreflightScreenCaptureAccess() else {
+            log("capture-blocked missing-screen-recording-permission pid=\(processIdentifier)")
             throw WindowScreenshotError.screenRecordingPermissionMissing
         }
 
@@ -50,8 +54,14 @@ struct WindowScreenshotService {
             })
 
         guard let matchingWindow else {
+            log("capture-no-window pid=\(processIdentifier)")
             throw WindowScreenshotError.noVisibleWindowForProcess(processIdentifier)
         }
+
+        log(
+            "capture-window-selected pid=\(processIdentifier) title=\(matchingWindow.title ?? "<untitled>") " +
+                "size=\(Int(matchingWindow.frame.width.rounded(.up)))x\(Int(matchingWindow.frame.height.rounded(.up)))"
+        )
 
         let filter = SCContentFilter(desktopIndependentWindow: matchingWindow)
         let configuration = SCStreamConfiguration()
@@ -60,6 +70,11 @@ struct WindowScreenshotService {
         configuration.showsCursor = false
 
         let image = try await captureImage(filter: filter, configuration: configuration)
+        let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+        log(
+            "capture-success pid=\(processIdentifier) image=\(image.width)x\(image.height) " +
+                "elapsed_ms=\(elapsedMilliseconds)"
+        )
         return CapturedWindowScreenshot(image: image, windowTitle: matchingWindow.title)
     }
 
@@ -102,5 +117,9 @@ struct WindowScreenshotService {
                 continuation.resume(returning: image)
             }
         }
+    }
+
+    private func log(_ message: String) {
+        print("[VisualContext] \(message)")
     }
 }

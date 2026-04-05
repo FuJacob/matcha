@@ -42,12 +42,21 @@ struct ScreenTextExtractor {
 
     /// Performs OCR asynchronously so the main actor is not blocked by Vision processing.
     func extractText(from image: CGImage) async throws -> ExtractedScreenText {
+        let startedAt = Date()
         let preparedImage = downsampledImageIfNeeded(image)
+        let wasDownsampled = preparedImage.width != image.width || preparedImage.height != image.height
+
+        log(
+            "ocr-start input=\(image.width)x\(image.height) prepared=\(preparedImage.width)x\(preparedImage.height) " +
+                "downsampled=\(wasDownsampled)"
+        )
 
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let request = VNRecognizeTextRequest { request, error in
                     if let error {
+                        let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+                        self.log("ocr-failed elapsed_ms=\(elapsedMilliseconds) reason=\(error.localizedDescription)")
                         continuation.resume(throwing: ScreenTextExtractionError.ocrFailed(error.localizedDescription))
                         return
                     }
@@ -69,9 +78,17 @@ struct ScreenTextExtractor {
                     let cappedText = String(joinedText.prefix(maxRecognizedCharacters))
 
                     guard !cappedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+                        self.log("ocr-empty elapsed_ms=\(elapsedMilliseconds) lines=\(orderedLines.count)")
                         continuation.resume(throwing: ScreenTextExtractionError.noRecognizedText)
                         return
                     }
+
+                    let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+                    self.log(
+                        "ocr-success elapsed_ms=\(elapsedMilliseconds) lines=\(orderedLines.count) chars=\(cappedText.count) " +
+                            "preview=\(self.preview(cappedText))"
+                    )
 
                     continuation.resume(returning: ExtractedScreenText(text: cappedText, lineCount: orderedLines.count))
                 }
@@ -84,6 +101,8 @@ struct ScreenTextExtractor {
                     let handler = VNImageRequestHandler(cgImage: preparedImage, options: [:])
                     try handler.perform([request])
                 } catch {
+                    let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
+                    self.log("ocr-failed elapsed_ms=\(elapsedMilliseconds) reason=\(error.localizedDescription)")
                     continuation.resume(throwing: ScreenTextExtractionError.ocrFailed(error.localizedDescription))
                 }
             }
@@ -121,5 +140,20 @@ struct ScreenTextExtractor {
         context.interpolationQuality = .medium
         context.draw(image, in: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
         return context.makeImage() ?? image
+    }
+
+    private func log(_ message: String) {
+        print("[VisualContext] \(message)")
+    }
+
+    private func preview(_ text: String) -> String {
+        let compact = text.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if compact.count <= 80 {
+            return compact
+        }
+
+        let cut = compact.index(compact.startIndex, offsetBy: 80)
+        return "\(compact[..<cut])..."
     }
 }

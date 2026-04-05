@@ -784,7 +784,7 @@ final class SuggestionCoordinator: ObservableObject {
         }
 
         sections.append(prefix)
-        return sections.joined(separator: "\n\n")
+        return sections.joined(separator: "\n")
     }
     
     

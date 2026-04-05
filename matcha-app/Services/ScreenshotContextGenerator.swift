@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// File overview:
@@ -49,16 +50,26 @@ final class ScreenshotContextGenerator {
         for context: FocusedInputSnapshot,
         onStatusChange: (@Sendable (VisualContextStatus) async -> Void)? = nil
     ) async throws -> InjectedVisualContext {
+        log(
+            "context-start app=\(context.applicationName) pid=\(context.processIdentifier) element=\(context.elementIdentifier)"
+        )
         await onStatusChange?(.capturing)
 
         let screenshot: CapturedWindowScreenshot
         do {
             screenshot = try await screenshotService.captureFrontmostWindow(processIdentifier: pid_t(context.processIdentifier))
         } catch let error as WindowScreenshotError {
+            log("context-capture-failed reason=\(error.localizedDescription)")
             throw ScreenshotContextGenerationError.unavailable(error.localizedDescription)
         } catch {
+            log("context-capture-failed reason=\(error.localizedDescription)")
             throw ScreenshotContextGenerationError.failed(error.localizedDescription)
         }
+
+        log(
+            "context-captured window=\(screenshot.windowTitle ?? "<untitled>") " +
+                "image=\(screenshot.image.width)x\(screenshot.image.height)"
+        )
 
         await onStatusChange?(.extractingText)
 
@@ -69,23 +80,30 @@ final class ScreenshotContextGenerator {
             guard let windowTitle = screenshot.windowTitle,
                   hasMeaningfulSignal(windowTitle)
             else {
+                log("context-ocr-unavailable no-recognized-text-and-weak-window-title")
                 throw ScreenshotContextGenerationError.unavailable(
                     "The screenshot did not contain enough visible text to build prompt context."
                 )
             }
 
             recognizedText = ""
+            log("context-ocr-empty using-window-title-fallback")
         } catch let error as ScreenTextExtractionError {
+            log("context-ocr-failed reason=\(error.localizedDescription)")
             throw ScreenshotContextGenerationError.unavailable(error.localizedDescription)
         } catch {
+            log("context-ocr-failed reason=\(error.localizedDescription)")
             throw ScreenshotContextGenerationError.failed(error.localizedDescription)
         }
+
+        log("context-ocr-ready chars=\(recognizedText.count)")
 
         let screenshotSignal = [screenshot.windowTitle, recognizedText]
             .compactMap { $0 }
             .joined(separator: "\n")
 
         guard hasMeaningfulSignal(screenshotSignal) else {
+            log("context-unavailable weak-screenshot-signal")
             throw ScreenshotContextGenerationError.unavailable(
                 "The screenshot did not contain enough visible text to build prompt context."
             )
@@ -106,6 +124,10 @@ final class ScreenshotContextGenerator {
 
         await onStatusChange?(.generatingSummary)
 
+        let modelDescription = runtimeManager.diagnostics.modelFilePath.map { URL(fileURLWithPath: $0).lastPathComponent }
+            ?? "<unknown-model>"
+        log("context-summary-start model=\(modelDescription)")
+
         let rawSummary = try await runtimeManager.generate(
             prompt: prompt,
             maxPredictionTokens: configuration.maxSummaryTokens,
@@ -118,8 +140,11 @@ final class ScreenshotContextGenerator {
 
         let normalizedSummary = normalizeSummary(rawSummary)
         guard !normalizedSummary.isEmpty else {
+            log("context-summary-empty model-returned-no-usable-text")
             throw ScreenshotContextGenerationError.failed("The local model returned an empty screenshot summary.")
         }
+
+        log("context-summary-ready summary=\(preview(normalizedSummary))")
 
         return InjectedVisualContext(
             summary: normalizedSummary,
@@ -213,5 +238,20 @@ final class ScreenshotContextGenerator {
 
         let letterCount = trimmed.unicodeScalars.filter(CharacterSet.letters.contains).count
         return letterCount >= 3
+    }
+
+    private func log(_ message: String) {
+        print("[VisualContext] \(message)")
+    }
+
+    private func preview(_ text: String) -> String {
+        let compact = text.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if compact.count <= 80 {
+            return compact
+        }
+
+        let cut = compact.index(compact.startIndex, offsetBy: 80)
+        return "\(compact[..<cut])..."
     }
 }

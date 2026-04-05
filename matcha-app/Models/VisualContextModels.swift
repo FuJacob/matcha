@@ -24,7 +24,8 @@ struct VisualContextConfiguration: Equatable, Sendable {
     static let `default` = VisualContextConfiguration(
         maxImageDimension: 1600,
         minRecognizedCharacterCount: 24,
-        maxRecognizedCharacters: 1800,
+        // Keep screenshot prompts comfortably under the runtime batch decode ceiling.
+        maxRecognizedCharacters: 600,
         maxSummaryTokens: 20,
         temperature: 0.2,
         topK: 40,

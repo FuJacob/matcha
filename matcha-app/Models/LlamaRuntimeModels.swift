@@ -48,9 +48,9 @@ struct LlamaRuntimeConfiguration: Equatable, Sendable {
     static let `default` = LlamaRuntimeConfiguration(
         runtimeDirectoryPath: nil,
         preferredModelNames: [
+            "Qwen3.5-2B-Q4_K_M.gguf",
             "Llama-3.2-3B.Q4_K_M.gguf",
             "Qwen3-1.7B.i1-Q4_K_M.gguf",
-            "Qwen3.5-2B-Q4_K_M.gguf",
             "Qwen3.5-0.8B-Q3_K_M.gguf",
             "qwen2-0_5b-instruct-q2_k.gguf",
             "qwen2-0_5b-instruct-q3_k_m.gguf",

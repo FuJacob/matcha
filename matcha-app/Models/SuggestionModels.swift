@@ -34,7 +34,7 @@ struct SuggestionConfiguration: Equatable, Sendable {
         // Prompt windows should stay small. Sending an entire Xcode buffer kills latency for no gain.
         maxPrefixCharacters: 192,
         maxSuffixCharacters: 192,
-        customAIInstructions: "Continue the text with only the next few words."
+        customAIInstructions: "Continue the text with only the next ten words."
     )
 }
 

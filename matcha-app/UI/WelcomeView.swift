@@ -48,12 +48,17 @@ struct WelcomeView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
-                .resizable()
-                .scaledToFit()
-                .frame(width: 54, height: 54)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(0.12))
+
+                Image(systemName: "pawprint.fill")
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.94))
+            }
+            .frame(width: 54, height: 54)
+            .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Welcome to Tabby")

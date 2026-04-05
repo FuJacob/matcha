@@ -109,14 +109,23 @@ private final class ActivationIndicatorPanel: NSPanel {
 
 private struct ActivationIndicatorView: View {
     var body: some View {
-        Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
-            .resizable()
-            .scaledToFit()
-            .frame(width: 22, height: 22)
-            .clipShape(RoundedRectangle(cornerRadius: 5.5, style: .continuous))
-            .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
-            .opacity(0.85)
-            .padding(2)
-            .fixedSize()
+        ZStack {
+            Circle()
+                .fill(Color.black.opacity(0.78))
+
+            Image(systemName: "pawprint.fill")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.95))
+        }
+        .frame(width: 22, height: 22)
+        .overlay(
+            Circle()
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+        .opacity(0.85)
+        .padding(2)
+        .fixedSize()
     }
 }
