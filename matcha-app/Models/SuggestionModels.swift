@@ -7,6 +7,50 @@ import Foundation
 /// generation orchestration, runtime inference, and UI rendering.
 ///
 /// Debug defaults live in one place so the first prediction slice has deterministic behavior.
+
+/// User-facing presets that bound how long one inline suggestion may be.
+/// Treating this as an enum keeps the UI and prompt policy in one source of truth.
+enum SuggestionWordCountPreset: String, CaseIterable, Equatable, Hashable, Sendable, Identifiable {
+    case oneToThree = "1-3"
+    case threeToSeven = "3-7"
+    case sevenToTwelve = "7-12"
+    case twelveToTwenty = "12-20"
+
+    var id: String { rawValue }
+
+    var displayLabel: String {
+        "\(rawValue) words"
+    }
+
+    var promptInstruction: String {
+        switch self {
+        case .oneToThree:
+            return "Return only the next 1 to 3 words."
+        case .threeToSeven:
+            return "Return only the next 3 to 7 words."
+        case .sevenToTwelve:
+            return "Return only the next 7 to 12 words."
+        case .twelveToTwenty:
+            return "Return only the next 12 to 20 words."
+        }
+    }
+
+    /// Approximate token budget needed to satisfy this word range with punctuation and contractions.
+    var suggestedPredictionTokenBudget: Int {
+        switch self {
+        case .oneToThree:
+            return 8
+        case .threeToSeven:
+            return 12
+        case .sevenToTwelve:
+            return 20
+        case.twelveToTwenty:
+            return 40
+        }
+
+    }
+}
+
 struct SuggestionConfiguration: Equatable, Sendable {
     let maxPredictionTokens: Int
     let debounceMilliseconds: Int
@@ -18,6 +62,7 @@ struct SuggestionConfiguration: Equatable, Sendable {
     let maxPrefixCharacters: Int
     let maxSuffixCharacters: Int
     let customAIInstructions: String
+    let defaultWordCountPreset: SuggestionWordCountPreset
 
     static let debugDefaults = SuggestionConfiguration(
         // Simple fast inline completion prediction size
@@ -34,7 +79,8 @@ struct SuggestionConfiguration: Equatable, Sendable {
         // Prompt windows should stay small. Sending an entire Xcode buffer kills latency for no gain.
         maxPrefixCharacters: 192,
         maxSuffixCharacters: 192,
-        customAIInstructions: "Continue the text with only the next ten words."
+        customAIInstructions: "Continue the text naturally in the same tone and context.",
+        defaultWordCountPreset: .threeToSeven
     )
 }
 

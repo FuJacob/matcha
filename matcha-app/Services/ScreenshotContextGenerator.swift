@@ -182,7 +182,8 @@ final class ScreenshotContextGenerator {
         [
             "Summarize the visible work context for inline autocomplete.",
             "Rules:",
-            "- Respond with one short phrase or sentence under 14 words.",
+            "- Respond with exactly one sentence between 8 and 14 words.",
+            "- Use plain sentence form; no numbering, bullets, labels, or fragments.",
             "- Describe what the user is working on, not how to respond.",
             "- Do not continue the typed text.",
             "- Do not use quotes or bullet points.",
@@ -206,6 +207,22 @@ final class ScreenshotContextGenerator {
         normalized = normalized
             .trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`-:"))
+
+        // Instruction-tuned models often prefix summaries with list markers like "1." or "-".
+        // Strip those so injected context stays stylistically neutral for inline completion.
+        normalized = normalized.replacingOccurrences(
+            of: "^\\s*(?:\\d+[.)]|[-*•])\\s*",
+            with: "",
+            options: .regularExpression
+        )
+
+        // Keep exactly one sentence if punctuation is present; this avoids multi-clause style bleed.
+        if let firstSentenceRange = normalized.range(
+            of: "^[^.!?]*[.!?]",
+            options: .regularExpression
+        ) {
+            normalized = String(normalized[firstSentenceRange])
+        }
 
         if normalized.count > 140 {
             normalized = String(normalized.prefix(140)).trimmingCharacters(in: .whitespacesAndNewlines)

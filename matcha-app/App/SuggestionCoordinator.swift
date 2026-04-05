@@ -29,6 +29,7 @@ final class SuggestionCoordinator: ObservableObject {
     @Published private(set) var latestGenerationNumber: UInt64?
     @Published private(set) var visualContextStatus: VisualContextStatus = .idle
     @Published private(set) var latestInjectedContextSummary: String?
+    @Published private(set) var selectedWordCountPreset: SuggestionWordCountPreset = .threeToSeven
 
     private let permissionManager: PermissionManager
     private let focusModel: FocusTrackingModel
@@ -39,6 +40,9 @@ final class SuggestionCoordinator: ObservableObject {
     private let screenshotContextGenerator: ScreenshotContextGenerator
     private let contextBuffer: ContextBuffer
     private let configuration: SuggestionConfiguration
+    private let userDefaults: UserDefaults
+
+    private static let selectedWordCountPresetDefaultsKey = "selectedSuggestionWordCountPreset"
 
     private var cancellables = Set<AnyCancellable>()
     private var debounceTask: Task<Void, Never>?
@@ -70,8 +74,14 @@ final class SuggestionCoordinator: ObservableObject {
         suggestionEngine: LlamaSuggestionEngine,
         screenshotContextGenerator: ScreenshotContextGenerator,
         contextBuffer: ContextBuffer,
-        configuration: SuggestionConfiguration
+        configuration: SuggestionConfiguration,
+        userDefaults: UserDefaults = .standard
     ) {
+        let storedWordCountPreset = userDefaults
+            .string(forKey: Self.selectedWordCountPresetDefaultsKey)
+            .flatMap(SuggestionWordCountPreset.init(rawValue:))
+        let resolvedWordCountPreset = storedWordCountPreset ?? configuration.defaultWordCountPreset
+
         self.permissionManager = permissionManager
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
@@ -81,6 +91,13 @@ final class SuggestionCoordinator: ObservableObject {
         self.screenshotContextGenerator = screenshotContextGenerator
         self.contextBuffer = contextBuffer
         self.configuration = configuration
+        self.userDefaults = userDefaults
+        selectedWordCountPreset = resolvedWordCountPreset
+
+        if storedWordCountPreset == nil {
+            userDefaults.set(resolvedWordCountPreset.rawValue, forKey: Self.selectedWordCountPresetDefaultsKey)
+        }
+
         overlayState = overlayController.state
         latestOverlayMessage = overlayController.state.detail
 
@@ -140,6 +157,28 @@ final class SuggestionCoordinator: ObservableObject {
         hideOverlay(reason: "Overlay hidden because the runtime model is switching.")
         state = .idle
         latestStageMessage = "Idle: runtime model switching reset active suggestion state."
+    }
+
+    /// Updates the length target used in prompt instructions and persists the user preference.
+    func selectWordCountPreset(_ preset: SuggestionWordCountPreset) {
+        guard selectedWordCountPreset != preset else {
+            return
+        }
+
+        selectedWordCountPreset = preset
+        userDefaults.set(preset.rawValue, forKey: Self.selectedWordCountPresetDefaultsKey)
+
+        cancelPredictionWork()
+        clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: "Overlay hidden because suggestion length settings changed.")
+        state = .idle
+        latestStageMessage = "Updated suggestion length to \(preset.displayLabel)."
+
+        if permissionManager.inputMonitoringGranted,
+           case .supported = focusModel.snapshot.capability
+        {
+            schedulePrediction()
+        }
     }
 
     private func handlePermissionChange() {
@@ -355,14 +394,14 @@ final class SuggestionCoordinator: ObservableObject {
             prompt: prompt,
             injectedContextSummary: injectedContextSummary,
             generation: context.generation,
-            maxPredictionTokens: configuration.maxPredictionTokens,
+            maxPredictionTokens: activeMaxPredictionTokens,
             temperature: configuration.temperature,
             topK: configuration.topK,
             topP: configuration.topP,
             minP: configuration.minP,
             repetitionPenalty: configuration.repetitionPenalty,
             maxSuffixCharacters: configuration.maxSuffixCharacters,
-            customAIInstructions: configuration.customAIInstructions
+            customAIInstructions: activeCompletionInstruction
         )
 
         state = .generating
@@ -777,7 +816,7 @@ final class SuggestionCoordinator: ObservableObject {
         injectedContextSummary: String?
     ) -> String {
         let prefix = String(context.precedingText.suffix(configuration.maxPrefixCharacters))
-        var sections = [configuration.customAIInstructions]
+        var sections = [activeCompletionInstruction]
 
         if let injectedContextSummary, !injectedContextSummary.isEmpty {
             sections.append("Relevant screen context: \(injectedContextSummary)")
@@ -798,7 +837,8 @@ final class SuggestionCoordinator: ObservableObject {
         """
         Backend: llama.swift
         transport: in-process
-        n_predict: \(configuration.maxPredictionTokens)
+        suggestion_words: \(selectedWordCountPreset.displayLabel)
+        n_predict: \(activeMaxPredictionTokens)
         temperature: \(configuration.temperature)
         top_k: \(configuration.topK)
         top_p: \(configuration.topP)
@@ -808,6 +848,15 @@ final class SuggestionCoordinator: ObservableObject {
         screenshot_context: \(hasInjectedContext ? "ready" : visualContextStatus.shortLabel.lowercased())
         stop: first line only
         """
+    }
+
+    private var activeCompletionInstruction: String {
+        [configuration.customAIInstructions, selectedWordCountPreset.promptInstruction]
+            .joined(separator: " ")
+    }
+
+    private var activeMaxPredictionTokens: Int {
+        max(configuration.maxPredictionTokens, selectedWordCountPreset.suggestedPredictionTokenBudget)
     }
 
     /// Accepts the current suggestion only if the field, generation, and visible overlay still match.

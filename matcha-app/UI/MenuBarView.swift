@@ -66,6 +66,12 @@ struct MenuBarView: View {
                     )
                 }
 
+                SuggestionWordCountPickerRow(
+                    title: "Words",
+                    selection: wordCountPresetBinding,
+                    options: SuggestionWordCountPreset.allCases
+                )
+
                 CompactStatusRow(
                     title: "Focus",
                     value: focusSummaryText,
@@ -288,6 +294,17 @@ struct MenuBarView: View {
         }
     }
 
+    private var wordCountPresetBinding: Binding<SuggestionWordCountPreset> {
+        Binding(
+            get: {
+                suggestionCoordinator.selectedWordCountPreset
+            },
+            set: { preset in
+                suggestionCoordinator.selectWordCountPreset(preset)
+            }
+        )
+    }
+
     private var focusSummaryText: String {
         let appName = focusModel.snapshot.applicationName
 
@@ -480,6 +497,31 @@ private struct ModelPickerRow: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .disabled(isDisabled)
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct SuggestionWordCountPickerRow: View {
+    let title: String
+    let selection: Binding<SuggestionWordCountPreset>
+    let options: [SuggestionWordCountPreset]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 74, alignment: .leading)
+
+            Picker(title, selection: selection) {
+                ForEach(options) { preset in
+                    Text(preset.displayLabel)
+                        .tag(preset)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
 
             Spacer(minLength: 0)
         }

@@ -74,6 +74,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.updateActivationIndicator(for: snapshot)
             }
             .store(in: &cancellables)
+
+        suggestionCoordinator.$visualContextStatus
+            .sink { [weak self] status in
+                self?.activationIndicatorController.setVisualContextStatus(status)
+            }
+            .store(in: &cancellables)
     }
 
     /// Starts runtime and observer services once AppKit reports that app launch finished.

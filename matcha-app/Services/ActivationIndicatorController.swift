@@ -12,9 +12,10 @@ import SwiftUI
 final class ActivationIndicatorController {
     private let horizontalGap: CGFloat = 6
     private let screenInset: CGFloat = 2
+    private var indicatorMode: ActivationIndicatorMode = .idle
 
     private lazy var contentView: NSHostingView<ActivationIndicatorView> = {
-        NSHostingView(rootView: ActivationIndicatorView())
+        NSHostingView(rootView: ActivationIndicatorView(mode: indicatorMode))
     }()
 
     private lazy var panel: ActivationIndicatorPanel = {
@@ -36,6 +37,19 @@ final class ActivationIndicatorController {
     }()
 
     private var lastInputFrameRect: CGRect?
+
+    /// Mirrors the visual-context pipeline stage into the indicator icon.
+    /// This is intentionally stateful because async stage transitions can arrive out of order
+    /// relative to focus updates; keeping one canonical mode here gives us last-write-wins behavior.
+    func setVisualContextStatus(_ status: VisualContextStatus) {
+        let nextMode = ActivationIndicatorMode(status: status)
+        guard indicatorMode != nextMode else {
+            return
+        }
+
+        indicatorMode = nextMode
+        contentView.rootView = ActivationIndicatorView(mode: nextMode)
+    }
 
     /// Sizes and positions the activation icon just outside the left edge of the supported input.
     func show(at inputFrameRect: CGRect) {
@@ -107,16 +121,85 @@ private final class ActivationIndicatorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+private enum ActivationIndicatorMode: Equatable {
+    case idle
+    case capturing
+    case extractingText
+    case summarizing
+    case ready
+    case unavailable
+    case failed
+
+    init(status: VisualContextStatus) {
+        switch status {
+        case .idle:
+            self = .idle
+        case .capturing:
+            self = .capturing
+        case .extractingText:
+            self = .extractingText
+        case .generatingSummary:
+            self = .summarizing
+        case .ready:
+            self = .ready
+        case .unavailable:
+            self = .unavailable
+        case .failed:
+            self = .failed
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .capturing:
+            return "camera.fill"
+        case .extractingText:
+            return "text.magnifyingglass"
+        case .summarizing:
+            return "wand.and.stars"
+        case .unavailable:
+            return "camera.slash.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .idle, .ready:
+            return "pawprint.fill"
+        }
+    }
+
+    var backgroundColor: Color {
+        switch self {
+        case .capturing:
+            return Color.orange.opacity(0.86)
+        case .extractingText:
+            return Color.blue.opacity(0.86)
+        case .summarizing:
+            return Color.teal.opacity(0.86)
+        case .unavailable:
+            return Color.orange.opacity(0.86)
+        case .failed:
+            return Color.red.opacity(0.86)
+        case .idle, .ready:
+            return Color.black.opacity(0.78)
+        }
+    }
+
+    var symbolColor: Color {
+        Color.white.opacity(0.95)
+    }
+}
+
 private struct ActivationIndicatorView: View {
+    let mode: ActivationIndicatorMode
+
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.black.opacity(0.78))
+                .fill(mode.backgroundColor)
 
-            Image(systemName: "pawprint.fill")
+            Image(systemName: mode.symbolName)
                 .symbolRenderingMode(.monochrome)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.95))
+                .foregroundStyle(mode.symbolColor)
         }
         .frame(width: 22, height: 22)
         .overlay(
