@@ -41,6 +41,12 @@ final class FocusTrackingModel: ObservableObject {
         tracker.stop()
     }
 
+    /// A manual refresh is useful when another subsystem already knows "input just changed"
+    /// and wants the latest AX snapshot immediately instead of waiting for the poll timer.
+    func refreshNow() {
+        tracker.refreshNow()
+    }
+
     /// The menu bar needs a compact status string, not the full diagnostic reason.
     var menuBarStatusText: String {
         snapshot.capability.shortLabel

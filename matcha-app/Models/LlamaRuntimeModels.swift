@@ -30,9 +30,10 @@ struct LlamaRuntimeConfiguration: Equatable {
     static let `default` = LlamaRuntimeConfiguration(
         runtimeDirectoryPath: nil,
         preferredModelNames: [
+            // Prefer the larger Qwen 3.5 model first; later entries are compatibility fallbacks.
+            "Qwen3.5-0.8B-Q3_K_M.gguf",
             "qwen2-0_5b-instruct-q2_k.gguf",
             "qwen2-0_5b-instruct-q3_k_m.gguf",
-            "Qwen3.5-0.8B-Q3_K_M.gguf",
         ],
         preferredPort: nil
     )

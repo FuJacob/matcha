@@ -102,6 +102,19 @@ struct FocusedInputSnapshot: Equatable {
     let selection: NSRange
     let isSecure: Bool
 
+    /// The signature lets later pipeline stages detect whether a completion result is stale.
+    /// This is the same idea you would use in a React app with a derived cache key.
+    var contentSignature: String {
+        [
+            elementIdentifier,
+            String(selection.location),
+            String(selection.length),
+            precedingText,
+            trailingText,
+            isSecure ? "secure" : "plain"
+        ].joined(separator: "::")
+    }
+
     var textPreview: String {
         let prefix = String(precedingText.suffix(32))
         let suffix = String(trailingText.prefix(32))

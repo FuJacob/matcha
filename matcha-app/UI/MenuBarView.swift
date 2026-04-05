@@ -5,6 +5,7 @@ struct MenuBarView: View {
     /// `@ObservedObject` listens to an external owner; the model lifetime is not owned by this view.
     @ObservedObject var runtimeModel: RuntimeBootstrapModel
     @ObservedObject var focusModel: FocusTrackingModel
+    @ObservedObject var suggestionModel: SuggestionDebugModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -33,6 +34,21 @@ struct MenuBarView: View {
             if !permissionManager.accessibilityGranted {
                 Button("Open Accessibility Settings →") {
                     permissionManager.openAccessibilitySettings()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(permissionManager.inputMonitoringGranted ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+                Text("Input Monitoring: \(permissionManager.inputMonitoringGranted ? "Granted" : "Required")")
+                    .font(.subheadline)
+            }
+
+            if !permissionManager.inputMonitoringGranted {
+                Button("Open Input Monitoring Settings →") {
+                    permissionManager.openInputMonitoringSettings()
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -113,13 +129,80 @@ struct MenuBarView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Suggestion")
+                    .font(.headline)
+
+                Text(suggestionModel.state.shortLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(suggestionStatusColor)
+
+                if let detail = suggestionModel.state.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Stage: \(suggestionModel.latestStageMessage)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let generation = suggestionModel.latestGenerationNumber {
+                    Text("Generation: \(generation)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let promptPreview = suggestionModel.latestPromptPreview, !promptPreview.isEmpty {
+                    Text("Prompt")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(promptPreview)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(8)
+                }
+
+                if let rawOutput = suggestionModel.latestRawModelOutput, !rawOutput.isEmpty {
+                    Text("Raw Output")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(rawOutput)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                if let preview = suggestionModel.latestSuggestionPreview, !preview.isEmpty {
+                    Text("Accepted Output")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(preview)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                if let latencyMilliseconds = suggestionModel.latestLatencyMilliseconds {
+                    Text("Latency: \(latencyMilliseconds) ms")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Divider()
+
             Button("Quit Matcha") {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")
         }
         .padding(12)
-        .frame(width: 360)
+        .frame(width: 380)
     }
 
     private var runtimeStatusColor: Color {
@@ -143,6 +226,21 @@ struct MenuBarView: View {
             return .orange
         case .unsupported:
             return .red
+        }
+    }
+
+    private var suggestionStatusColor: Color {
+        switch suggestionModel.state {
+        case .ready:
+            return .green
+        case .failed:
+            return .red
+        case .disabled, .debouncing:
+            return .orange
+        case .generating:
+            return .blue
+        case .idle:
+            return .secondary
         }
     }
 }

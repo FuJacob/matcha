@@ -11,7 +11,8 @@ struct matcha_appApp: App {
             MenuBarView(
                 permissionManager: appDelegate.permissionManager,
                 runtimeModel: appDelegate.runtimeModel,
-                focusModel: appDelegate.focusModel
+                focusModel: appDelegate.focusModel,
+                suggestionModel: appDelegate.suggestionModel
             )
         } label: {
             MenuBarStatusLabelView(

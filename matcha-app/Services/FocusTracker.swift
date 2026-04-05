@@ -50,7 +50,9 @@ final class FocusTracker {
         refreshNow()
 
         let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
-            self?.refreshNow()
+            Task { @MainActor [weak self] in
+                self?.refreshNow()
+            }
         }
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
