@@ -116,6 +116,17 @@ final class SuggestionCoordinator: ObservableObject {
         overlayController.onStateChange = nil
     }
 
+    /// Clears any active suggestion work before the runtime swaps to a different model.
+    /// This prevents stale completions from the previous model from surviving the switch.
+    func prepareForRuntimeModelSwitch() {
+        cancelPredictionWork()
+        contextBuffer.clear()
+        clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: "Overlay hidden because the runtime model is switching.")
+        state = .idle
+        latestStageMessage = "Idle: runtime model switching reset active suggestion state."
+    }
+
     private func handlePermissionChange() {
         reconcileWithCurrentEnvironment()
     }

@@ -40,6 +40,21 @@ struct MenuBarView: View {
                     tone: runtimeStatusColor
                 )
 
+                if runtimeModel.availableModels.isEmpty {
+                    CompactStatusRow(
+                        title: "Model",
+                        value: "No bundled GGUF models found",
+                        tone: .secondary
+                    )
+                } else {
+                    ModelPickerRow(
+                        title: "Model",
+                        selection: selectedModelBinding,
+                        models: runtimeModel.availableModels,
+                        isDisabled: runtimePickerDisabled
+                    )
+                }
+
                 CompactStatusRow(
                     title: "Focus",
                     value: focusSummaryText,
@@ -179,23 +194,48 @@ struct MenuBarView: View {
     }
 
     private var runtimeSummaryText: String {
-        let modelName = runtimeModel.diagnostics.modelFilePath.map { URL(fileURLWithPath: $0).lastPathComponent }
+        let modelName = runtimeModel.selectedModelFilename
+            ?? runtimeModel.diagnostics.modelFilePath.map { URL(fileURLWithPath: $0).lastPathComponent }
 
         switch runtimeModel.state {
         case .ready:
             return [modelName, "Ready"].compactMap { $0 }.joined(separator: " · ")
 
         case .starting:
-            return "Starting runtime"
+            return modelName.map { "\($0) · Starting" } ?? "Starting runtime"
 
         case .loading:
             return modelName.map { "\($0) · Loading" } ?? "Loading model"
 
         case .failed(let message):
-            return message
+            return modelName.map { "\($0) · \(message)" } ?? message
 
         case .idle:
             return modelName.map { "\($0) · Idle" } ?? "Idle"
+        }
+    }
+
+    private var selectedModelBinding: Binding<String> {
+        Binding(
+            get: {
+                runtimeModel.selectedModelFilename
+                    ?? runtimeModel.availableModels.first?.filename
+                    ?? ""
+            },
+            set: { filename in
+                Task {
+                    await runtimeModel.selectModel(filename)
+                }
+            }
+        )
+    }
+
+    private var runtimePickerDisabled: Bool {
+        switch runtimeModel.state {
+        case .starting, .loading:
+            return true
+        case .idle, .ready, .failed:
+            return false
         }
     }
 
@@ -325,6 +365,33 @@ private struct CompactStatusRow: View {
                 .font(.subheadline)
                 .foregroundStyle(tone)
                 .lineLimit(2)
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct ModelPickerRow: View {
+    let title: String
+    let selection: Binding<String>
+    let models: [RuntimeModelOption]
+    let isDisabled: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 74, alignment: .leading)
+
+            Picker(title, selection: selection) {
+                ForEach(models) { model in
+                    Text(model.displayName)
+                        .tag(model.filename)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .disabled(isDisabled)
 
             Spacer(minLength: 0)
         }

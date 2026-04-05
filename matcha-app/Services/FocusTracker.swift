@@ -303,7 +303,8 @@ final class FocusTracker {
                 selection: $0,
                 supportsBoundsForRange: supportedParameterizedAttributes.contains(kAXBoundsForRangeParameterizedAttribute as String),
                 supportsFrame: supportedAttributes.contains("AXFrame"),
-                bundleIdentifier: bundleIdentifier
+                bundleIdentifier: bundleIdentifier,
+                textValue: textValue
             )
         }
         let isSecure = isSecureElement(element: element, role: role, subrole: subrole)
@@ -339,7 +340,8 @@ final class FocusTracker {
         selection: NSRange,
         supportsBoundsForRange: Bool,
         supportsFrame: Bool,
-        bundleIdentifier: String
+        bundleIdentifier: String,
+        textValue: String? = nil
     ) -> CGRect? {
         if supportsBoundsForRange,
            let rect = AXHelper.parameterizedRectValue(
@@ -388,6 +390,8 @@ final class FocusTracker {
             return returnedRect
         }
 
+        print("[\(bundleIdentifier)] resolveCaretRect: supportsBoundsForRange was \(supportsBoundsForRange)")
+
         if supportsFrame,
            let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty {
             let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: frame, bundleIdentifier: bundleIdentifier, isTextRect: false)
@@ -397,6 +401,20 @@ final class FocusTracker {
             
             if cocoaRect.width > 10 {
                 print("  ⚠️ WARNING: AXFrame fallback used. This returns the whole element frame and will likely push the overlay to the far right edge.")
+                // Attempt an estimation based on string length if we know it
+                if let text = textValue {
+                    let prefix = (text as NSString).substring(to: min(selection.location, (text as NSString).length))
+                    let estimatedWidthPerChar: CGFloat = 8.0 // Very rough guess for 14-16pt font
+                    let estimatedX = cocoaRect.minX + (CGFloat(prefix.count) * estimatedWidthPerChar)
+                    
+                    // Clamp to the box
+                    let clampedX = min(estimatedX, cocoaRect.maxX)
+                    
+                    let fakeCaret = CGRect(x: clampedX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
+                    print("  ✨ Attempted String Estimation for \(text.count) chars, prefix \(prefix.count) chars.")
+                    print("  ✨ Fake Caret Rect mapped: \(fakeCaret)")
+                    return fakeCaret
+                }
             }
             
             return cocoaRect

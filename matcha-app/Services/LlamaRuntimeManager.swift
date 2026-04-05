@@ -365,8 +365,11 @@ final class LlamaRuntimeManager: ObservableObject {
     private let configuration: LlamaRuntimeConfiguration
     private let runtimeLocator: BundledRuntimeLocator
     private let core: LlamaRuntimeCore
+    let availableModels: [RuntimeModelOption]
     private var startupTask: Task<PreparedLlamaRuntime, Error>?
+    private var startupModelFilename: String?
     private var cachedRuntime: PreparedLlamaRuntime?
+    private var selectedModelFilename: String?
 
     convenience init() {
         self.init(
@@ -381,11 +384,42 @@ final class LlamaRuntimeManager: ObservableObject {
     ) {
         self.configuration = configuration
         self.runtimeLocator = runtimeLocator
+        availableModels = runtimeLocator.availableModels(configuration: configuration)
+        selectedModelFilename = availableModels.first?.filename
         core = LlamaRuntimeCore()
     }
 
-    /// Ensures the preferred bundled model is resolved and prepared before any generation requests run.
+    /// Records which discovered model should be loaded when preparation starts.
+    /// This keeps persisted UI state separate from the runtime loading lifecycle.
+    func configureSelectedModel(filename: String?) {
+        selectedModelFilename = normalizedModelFilename(filename)
+    }
+
+    /// Ensures the selected bundled model is resolved and prepared before any generation requests run.
     func prepare() async throws {
+        _ = try await preparedRuntime()
+    }
+
+    /// Reloads the runtime in place with a newly selected bundled model.
+    /// The manager instance stays alive; only the loaded model changes.
+    func selectModel(filename: String) async throws {
+        guard let normalizedFilename = normalizedModelFilename(filename) else {
+            let error = LlamaRuntimeError.unavailable("The bundled model \(filename) is unavailable.")
+            diagnostics.lastError = error.localizedDescription
+            throw error
+        }
+
+        selectedModelFilename = normalizedFilename
+
+        if cachedRuntime?.resolvedRuntime.modelFileURL.lastPathComponent == normalizedFilename {
+            return
+        }
+
+        startupTask?.cancel()
+        startupTask = nil
+        startupModelFilename = nil
+        cachedRuntime = nil
+
         _ = try await preparedRuntime()
     }
 
@@ -427,6 +461,7 @@ final class LlamaRuntimeManager: ObservableObject {
     func stop() {
         startupTask?.cancel()
         startupTask = nil
+        startupModelFilename = nil
         cachedRuntime = nil
 
         Task {
@@ -439,29 +474,31 @@ final class LlamaRuntimeManager: ObservableObject {
 
     /// Returns cached runtime metadata when available or performs one full preparation flow otherwise.
     private func preparedRuntime() async throws -> PreparedLlamaRuntime {
-        if let cachedRuntime {
+        let resolvedRuntime = try resolveSelectedRuntime()
+        let requestedModelFilename = resolvedRuntime.modelFileURL.lastPathComponent
+
+        if let cachedRuntime,
+           cachedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL
+        {
             return cachedRuntime
         }
 
         if let startupTask {
-            return try await startupTask.value
+            if startupModelFilename == requestedModelFilename {
+                return try await awaitPreparedRuntime(startupTask)
+            }
+
+            startupTask.cancel()
+            self.startupTask = nil
+            startupModelFilename = nil
         }
+
+        cachedRuntime = nil
 
         state = .starting("Initializing the in-process llama runtime.")
         diagnostics.lastError = nil
         diagnostics.lastLoadStatus = "Starting"
-        let resolvedRuntime: ResolvedLlamaRuntime
-
-        do {
-            resolvedRuntime = try runtimeLocator.resolve(configuration: configuration)
-        } catch {
-            let runtimeError = LlamaRuntimeError.unavailable(error.localizedDescription)
-            diagnostics.lastError = runtimeError.localizedDescription
-            diagnostics.lastLoadStatus = "Failed"
-            state = .failed(runtimeError.localizedDescription)
-            throw runtimeError
-        }
-
+        diagnostics.modelFilePath = resolvedRuntime.modelFileURL.path
         let startupTask = Task { [core, configuration] in
             try await core.prepare(
                 resolvedRuntime: resolvedRuntime,
@@ -469,25 +506,71 @@ final class LlamaRuntimeManager: ObservableObject {
             )
         }
         self.startupTask = startupTask
-        state = .loading("Loading the model into memory.")
+        startupModelFilename = requestedModelFilename
+        state = .loading("Loading \(resolvedRuntime.modelDisplayName) into memory.")
 
+        return try await awaitPreparedRuntime(startupTask)
+    }
+
+    /// Resolves either the explicitly selected model or the default preferred model order.
+    private func resolveSelectedRuntime() throws -> ResolvedLlamaRuntime {
+        do {
+            return try runtimeLocator.resolve(
+                configuration: configuration,
+                selectedModelFilename: selectedModelFilename
+            )
+        } catch {
+            let runtimeError = LlamaRuntimeError.unavailable(error.localizedDescription)
+            diagnostics.lastError = runtimeError.localizedDescription
+            diagnostics.lastLoadStatus = "Failed"
+            state = .failed(runtimeError.localizedDescription)
+            throw runtimeError
+        }
+    }
+
+    /// Validates the chosen filename against discovered bundled models and falls back to the first
+    /// available option when the caller passes `nil` or a missing filename.
+    private func normalizedModelFilename(_ filename: String?) -> String? {
+        guard !availableModels.isEmpty else {
+            return nil
+        }
+
+        guard let filename else {
+            return availableModels.first?.filename
+        }
+
+        if availableModels.contains(where: { $0.filename == filename }) {
+            return filename
+        }
+
+        return availableModels.first?.filename
+    }
+
+    /// Awaits the prepared runtime task and applies the published diagnostics on success.
+    private func awaitPreparedRuntime(
+        _ startupTask: Task<PreparedLlamaRuntime, Error>
+    ) async throws -> PreparedLlamaRuntime {
         do {
             let preparedRuntime = try await startupTask.value
             cachedRuntime = preparedRuntime
             apply(preparedRuntime)
             self.startupTask = nil
+            startupModelFilename = nil
             return preparedRuntime
         } catch is CancellationError {
             self.startupTask = nil
+            startupModelFilename = nil
             throw LlamaRuntimeError.cancelled
         } catch let error as LlamaRuntimeError {
             self.startupTask = nil
+            startupModelFilename = nil
             diagnostics.lastError = error.localizedDescription
             diagnostics.lastLoadStatus = "Failed"
             state = .failed(error.localizedDescription)
             throw error
         } catch {
             self.startupTask = nil
+            startupModelFilename = nil
             let runtimeError = LlamaRuntimeError.unavailable(error.localizedDescription)
             diagnostics.lastError = runtimeError.localizedDescription
             diagnostics.lastLoadStatus = "Failed"

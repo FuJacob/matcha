@@ -7,6 +7,7 @@ import Foundation
 enum BundledRuntimeLocatorError: LocalizedError {
     case runtimeDirectoryMissing(String)
     case modelMissing(String)
+    case namedModelMissing(String)
 
     var errorDescription: String? {
         switch self {
@@ -14,6 +15,8 @@ enum BundledRuntimeLocatorError: LocalizedError {
             return "Runtime directory is missing at \(path)."
         case let .modelMissing(path):
             return "No supported GGUF model was found at \(path)."
+        case let .namedModelMissing(filename):
+            return "The bundled model \(filename) was not found."
         }
     }
 }
@@ -37,18 +40,59 @@ struct BundledRuntimeLocator {
 
     /// Finds the first preferred bundled model that exists and returns the fully resolved runtime asset paths.
     func resolve(configuration: LlamaRuntimeConfiguration) throws -> ResolvedLlamaRuntime {
+        try resolve(configuration: configuration, selectedModelFilename: nil)
+    }
+
+    /// Resolves a specific model when selected explicitly, or the default preferred model order otherwise.
+    func resolve(
+        configuration: LlamaRuntimeConfiguration,
+        selectedModelFilename: String?
+    ) throws -> ResolvedLlamaRuntime {
         var lastError: Error?
 
         // We try candidates in order so production bundle paths win over local-dev fallbacks.
         for candidate in runtimeCandidates(for: configuration) {
             do {
-                return try validate(candidate: candidate, preferredModelNames: configuration.preferredModelNames)
+                let modelOptions = try availableModels(
+                    candidate: candidate,
+                    preferredModelNames: configuration.preferredModelNames
+                )
+
+                let selectedOption: RuntimeModelOption
+                if let selectedModelFilename {
+                    guard let matchingOption = modelOptions.first(where: { $0.filename == selectedModelFilename }) else {
+                        throw BundledRuntimeLocatorError.namedModelMissing(selectedModelFilename)
+                    }
+                    selectedOption = matchingOption
+                } else if let firstOption = modelOptions.first {
+                    selectedOption = firstOption
+                } else {
+                    throw BundledRuntimeLocatorError.modelMissing(candidate.modelDirectoryURL.path)
+                }
+
+                return resolvedRuntime(from: selectedOption, candidate: candidate)
             } catch {
                 lastError = error
             }
         }
 
         throw lastError ?? BundledRuntimeLocatorError.runtimeDirectoryMissing("No runtime candidates were available.")
+    }
+
+    /// Lists all GGUF models in deterministic display order for the highest-priority runtime candidate.
+    func availableModels(configuration: LlamaRuntimeConfiguration) -> [RuntimeModelOption] {
+        for candidate in runtimeCandidates(for: configuration) {
+            if let modelOptions = try? availableModels(
+                candidate: candidate,
+                preferredModelNames: configuration.preferredModelNames
+            ),
+                !modelOptions.isEmpty
+            {
+                return modelOptions
+            }
+        }
+
+        return []
     }
 
     /// Enumerates possible runtime directories in bundle-first, development-second order.
@@ -88,11 +132,11 @@ struct BundledRuntimeLocator {
         return candidates
     }
 
-    /// Verifies that a candidate directory contains one of the preferred model files.
-    private func validate(
+    /// Enumerates and orders all GGUF models for one runtime candidate.
+    private func availableModels(
         candidate: RuntimeCandidate,
         preferredModelNames: [String]
-    ) throws -> ResolvedLlamaRuntime {
+    ) throws -> [RuntimeModelOption] {
         let fileManager = FileManager.default
         var isDirectory = ObjCBool(false)
 
@@ -100,17 +144,63 @@ struct BundledRuntimeLocator {
             throw BundledRuntimeLocatorError.runtimeDirectoryMissing(candidate.runtimeDirectoryURL.path)
         }
 
-        guard let modelFileURL = preferredModelNames
-            .map({ candidate.modelDirectoryURL.appendingPathComponent($0) })
-            .first(where: { fileManager.fileExists(atPath: $0.path) })
-        else {
+        var isModelDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: candidate.modelDirectoryURL.path, isDirectory: &isModelDirectory), isModelDirectory.boolValue else {
             throw BundledRuntimeLocatorError.modelMissing(candidate.modelDirectoryURL.path)
         }
 
-        return ResolvedLlamaRuntime(
+        let discoveredModelURLs = try fileManager.contentsOfDirectory(
+            at: candidate.modelDirectoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        .filter { $0.pathExtension.caseInsensitiveCompare("gguf") == .orderedSame }
+
+        guard !discoveredModelURLs.isEmpty else {
+            throw BundledRuntimeLocatorError.modelMissing(candidate.modelDirectoryURL.path)
+        }
+
+        let modelOptionsByFilename = Dictionary(uniqueKeysWithValues: discoveredModelURLs.map { modelURL in
+            let option = RuntimeModelOption(
+                filename: modelURL.lastPathComponent,
+                url: modelURL
+            )
+            return (option.filename, option)
+        })
+
+        var orderedModels: [RuntimeModelOption] = []
+        var seenFilenames = Set<String>()
+
+        for preferredModelName in preferredModelNames {
+            guard let modelOption = modelOptionsByFilename[preferredModelName],
+                  seenFilenames.insert(preferredModelName).inserted
+            else {
+                continue
+            }
+
+            orderedModels.append(modelOption)
+        }
+
+        let alphabeticalFallbacks = modelOptionsByFilename.values.sorted {
+            $0.filename.localizedCaseInsensitiveCompare($1.filename) == .orderedAscending
+        }
+
+        for modelOption in alphabeticalFallbacks where seenFilenames.insert(modelOption.filename).inserted {
+            orderedModels.append(modelOption)
+        }
+
+        return orderedModels
+    }
+
+    /// Builds the concrete runtime asset paths for one chosen model option.
+    private func resolvedRuntime(
+        from modelOption: RuntimeModelOption,
+        candidate: RuntimeCandidate
+    ) -> ResolvedLlamaRuntime {
+        ResolvedLlamaRuntime(
             runtimeDirectoryURL: candidate.runtimeDirectoryURL,
-            modelFileURL: modelFileURL,
-            modelDisplayName: modelFileURL.lastPathComponent
+            modelFileURL: modelOption.url,
+            modelDisplayName: modelOption.displayName
         )
     }
 

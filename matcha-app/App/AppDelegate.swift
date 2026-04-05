@@ -51,6 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.suggestionCoordinator = suggestionCoordinator
         super.init()
 
+        runtimeModel.onWillReloadModel = { [weak suggestionCoordinator] in
+            suggestionCoordinator?.prepareForRuntimeModelSwitch()
+        }
+
         permissionManager.$inputMonitoringGranted
             .sink { [weak self] _ in
                 self?.inputMonitor.refresh()
