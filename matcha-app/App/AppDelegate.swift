@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let focusModel: FocusTrackingModel
     let inputMonitor: InputMonitor
     let suggestionCoordinator: SuggestionCoordinator
+    let welcomeCoordinator: WelcomeCoordinator
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissionProvider: { permissionManager.accessibilityGranted },
             ignoredBundleIdentifier: Bundle.main.bundleIdentifier
         )
+        let welcomeCoordinator = WelcomeCoordinator(permissionManager: permissionManager)
         let runtimeModel = RuntimeBootstrapModel(runtimeManager: runtimeManager)
         let suggestionInserter = SuggestionInserter(suppressionController: suppressionController)
         let overlayController = OverlayController()
@@ -49,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
         self.suggestionCoordinator = suggestionCoordinator
+        self.welcomeCoordinator = welcomeCoordinator
         super.init()
 
         runtimeModel.onWillReloadModel = { [weak suggestionCoordinator] in
@@ -68,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusModel.start()
         inputMonitor.start()
         suggestionCoordinator.start()
+        welcomeCoordinator.presentIfNeeded()
     }
 
     /// Stops long-lived services before process exit so observers and runtime resources detach cleanly.

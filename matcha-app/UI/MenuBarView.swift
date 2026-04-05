@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -11,6 +12,7 @@ struct MenuBarView: View {
     @ObservedObject var runtimeModel: RuntimeBootstrapModel
     @ObservedObject var focusModel: FocusTrackingModel
     @ObservedObject var suggestionCoordinator: SuggestionCoordinator
+    let welcomeCoordinator: WelcomeCoordinator
 
     /// Lays out the compact status panel and conditionally reveals debug payload previews.
     var body: some View {
@@ -90,11 +92,20 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button("Quit Matcha") {
-                NSApplication.shared.terminate(nil)
+            HStack(spacing: 8) {
+                Button("Show Welcome") {
+                    welcomeCoordinator.showWelcome()
+                }
+                .controlSize(.small)
+
+                Spacer(minLength: 0)
+
+                Button("Quit Matcha") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .keyboardShortcut("q")
+                .controlSize(.small)
             }
-            .keyboardShortcut("q")
-            .controlSize(.small)
         }
         .padding(12)
         .frame(width: 320)

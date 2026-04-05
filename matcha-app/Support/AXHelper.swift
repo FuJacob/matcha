@@ -142,6 +142,47 @@ enum AXHelper {
         return rect
     }
 
+    /// Some applications (like Chromium and WebKit browsers) do not properly support `AXBoundsForRange`
+    /// using `NSRange`. Instead, they use a private, undocumented Accessibility object called `AXTextMarker`.
+    /// 
+    /// To get the caret rect from these apps, we must:
+    /// 1. Ask for `AXSelectedTextMarkerRange` (which returns an opaque `AXTextMarkerRange`).
+    /// 2. Pass that marker range back to the element using `AXBoundsForTextMarkerRange`.
+    /// 
+    /// This bypasses the need to translate `NSRange` manually and forces the browser to resolve
+    /// the physical layout of its own internal selection object.
+    static func textMarkerCaretRect(on element: AXUIElement) -> CGRect? {
+        // 1. Get the opaque AXTextMarkerRange that represents the current selection/caret.
+        let selectedMarkerRangeAttribute = "AXSelectedTextMarkerRange" as CFString
+        var markerRangeValue: CFTypeRef?
+        
+        var result = AXUIElementCopyAttributeValue(element, selectedMarkerRangeAttribute, &markerRangeValue)
+        guard result == .success, let markerRange = markerRangeValue else {
+            return nil
+        }
+        
+        // 2. Ask the element to compute the bounding box for that exact text marker range.
+        let boundsForMarkerRangeAttribute = "AXBoundsForTextMarkerRange" as CFString
+        var boundsValue: CFTypeRef?
+        
+        result = AXUIElementCopyParameterizedAttributeValue(element, boundsForMarkerRangeAttribute, markerRange, &boundsValue)
+        guard result == .success, let bounds = boundsValue, CFGetTypeID(bounds) == AXValueGetTypeID() else {
+            return nil
+        }
+        
+        let axBounds = bounds as! AXValue
+        guard AXValueGetType(axBounds) == .cgRect else {
+            return nil
+        }
+        
+        var rect = CGRect.zero
+        guard AXValueGetValue(axBounds, .cgRect, &rect) else {
+            return nil
+        }
+        
+        return rect
+    }
+
     static func copyAttributeValue(_ attribute: CFString, on element: AXUIElement) -> AnyObject? {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(element, attribute, &value)

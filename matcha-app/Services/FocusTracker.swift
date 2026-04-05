@@ -368,6 +368,24 @@ final class FocusTracker {
             return normalized
         }
 
+        // Branch 1.5: Chromium / WebKit specific AXTextMarker fallback
+        // Apps like Discord/Chrome fail the typical `NSRange` queries but will successfully return
+        // a perfect caret bounding box if we use their internal `AXTextMarkerRange`.
+        if let markerRect = AXHelper.textMarkerCaretRect(on: element), !markerRect.isEmpty {
+            let cocoaRect = AXHelper.cocoaRect(
+                fromAccessibilityRect: markerRect,
+                bundleIdentifier: bundleIdentifier,
+                isTextRect: true
+            )
+            print("[\(bundleIdentifier)] resolveCaretRect: Branch 1.5 (AXTextMarker)")
+            print("  Raw Marker Rect: \(markerRect)")
+            print("  Cocoa Marker Rect: \(cocoaRect)")
+            
+            let normalized = normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
+            print("  Returned rect: \(normalized)")
+            return normalized
+        }
+
         if supportsBoundsForRange,
            selection.location > 0,
            let rect = AXHelper.parameterizedRectValue(

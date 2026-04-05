@@ -17,7 +17,8 @@ struct matcha_appApp: App {
                 permissionManager: appDelegate.permissionManager,
                 runtimeModel: appDelegate.runtimeModel,
                 focusModel: appDelegate.focusModel,
-                suggestionCoordinator: appDelegate.suggestionCoordinator
+                suggestionCoordinator: appDelegate.suggestionCoordinator,
+                welcomeCoordinator: appDelegate.welcomeCoordinator
             )
         } label: {
             MenuBarStatusLabelView(
