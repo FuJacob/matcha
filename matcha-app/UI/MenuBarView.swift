@@ -63,27 +63,42 @@ struct MenuBarView: View {
                     .font(.subheadline)
                     .foregroundStyle(runtimeStatusColor)
 
-                if let health = runtimeModel.diagnostics.lastHealthStatus {
-                    Text("Health: \(health)")
+                if let backendName = runtimeModel.diagnostics.backendName {
+                    Text("Backend: \(backendName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                if let port = runtimeModel.diagnostics.serverPort {
-                    Text("Port: \(port)")
+                if let status = runtimeModel.diagnostics.lastLoadStatus {
+                    Text("Status: \(status)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
 
-            if let log = runtimeModel.diagnostics.recentServerLog, !log.isEmpty {
-                ScrollView {
-                    Text(log)
-                        .font(.caption2.monospaced())
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if let contextWindow = runtimeModel.diagnostics.contextWindowTokens {
+                    Text("Context: \(contextWindow) tokens")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let batchSize = runtimeModel.diagnostics.batchSize {
+                    Text("Batch: \(batchSize)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let threadCount = runtimeModel.diagnostics.threadCount {
+                    Text("Threads: \(threadCount)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let lastError = runtimeModel.diagnostics.lastError, !lastError.isEmpty {
+                    Text(lastError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                         .textSelection(.enabled)
                 }
-                .frame(maxHeight: 120)
             }
 
             Divider()

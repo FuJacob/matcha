@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 /// Debug defaults live in one place so the first prediction slice has deterministic behavior.
-struct SuggestionConfiguration: Equatable {
+struct SuggestionConfiguration: Equatable, Sendable {
     let maxPredictionTokens: Int
     let debounceMilliseconds: Int
     let temperature: Double
@@ -26,7 +26,7 @@ struct SuggestionConfiguration: Equatable {
 
 /// This is the stable context used across debounce and generation boundaries.
 /// It extends the AX snapshot with a monotonically increasing generation number.
-struct FocusedInputContext: Equatable {
+struct FocusedInputContext: Equatable, Sendable {
     let applicationName: String
     let bundleIdentifier: String
     let elementIdentifier: String
@@ -65,7 +65,7 @@ struct FocusedInputContext: Equatable {
     }
 }
 
-struct SuggestionRequest: Equatable {
+struct SuggestionRequest: Equatable, Sendable {
     let context: FocusedInputContext
     let prompt: String
     let generation: UInt64
@@ -74,7 +74,7 @@ struct SuggestionRequest: Equatable {
     let topP: Double
 }
 
-struct SuggestionResult: Equatable {
+struct SuggestionResult: Equatable, Sendable {
     let generation: UInt64
     let rawText: String
     let text: String

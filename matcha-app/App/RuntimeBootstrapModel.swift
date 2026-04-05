@@ -8,23 +8,23 @@ final class RuntimeBootstrapModel: ObservableObject {
     @Published private(set) var state: RuntimeBootstrapState
     @Published private(set) var diagnostics: LlamaRuntimeDiagnostics
 
-    private let serverManager: LlamaServerManager
+    private let runtimeManager: LlamaRuntimeManager
     private var cancellables = Set<AnyCancellable>()
     private var startupTask: Task<Void, Never>?
 
-    init(serverManager: LlamaServerManager) {
-        self.serverManager = serverManager
-        state = serverManager.state
-        diagnostics = serverManager.diagnostics
+    init(runtimeManager: LlamaRuntimeManager) {
+        self.runtimeManager = runtimeManager
+        state = runtimeManager.state
+        diagnostics = runtimeManager.diagnostics
 
         // `sink` subscribes to publisher updates; storing cancellables keeps subscriptions alive.
-        serverManager.$state
+        runtimeManager.$state
             .sink { [weak self] state in
                 self?.state = state
             }
             .store(in: &cancellables)
 
-        serverManager.$diagnostics
+        runtimeManager.$diagnostics
             .sink { [weak self] diagnostics in
                 self?.diagnostics = diagnostics
             }
@@ -48,7 +48,7 @@ final class RuntimeBootstrapModel: ObservableObject {
             }
 
             do {
-                _ = try await self.serverManager.start()
+                try await self.runtimeManager.prepare()
             } catch {
                 print("Runtime startup failed: \(error.localizedDescription)")
             }
@@ -58,6 +58,6 @@ final class RuntimeBootstrapModel: ObservableObject {
     func stop() {
         startupTask?.cancel()
         startupTask = nil
-        serverManager.stopSynchronously()
+        runtimeManager.stop()
     }
 }

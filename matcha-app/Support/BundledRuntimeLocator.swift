@@ -2,31 +2,21 @@ import Foundation
 
 enum BundledRuntimeLocatorError: LocalizedError {
     case runtimeDirectoryMissing(String)
-    case serverBinaryMissing(String)
-    case serverBinaryNotExecutable(String)
     case modelMissing(String)
-    case dependencyMissing(String)
 
     var errorDescription: String? {
         switch self {
         case let .runtimeDirectoryMissing(path):
             return "Runtime directory is missing at \(path)."
-        case let .serverBinaryMissing(path):
-            return "llama-server is missing at \(path)."
-        case let .serverBinaryNotExecutable(path):
-            return "llama-server is not executable at \(path)."
         case let .modelMissing(path):
             return "No supported GGUF model was found at \(path)."
-        case let .dependencyMissing(path):
-            return "Required llama.cpp dependency is missing at \(path)."
         }
     }
 }
 
-/// Resolves runtime assets from bundle layout first and a source-tree fallback second.
-/// Keeping `LlamaRuntime` outside the Xcode target folder prevents the app binary from
-/// accidentally linking against llama.cpp dylibs. The app should launch `llama-server`,
-/// not become a direct consumer of ggml/llama dynamic libraries.
+/// Resolves bundled GGUF assets from the app bundle first and the source tree second.
+/// The folder name is still `LlamaRuntime` for now, but it is model storage only.
+/// Matcha links llama.cpp in-process through `llama.swift`; it no longer launches a server.
 struct BundledRuntimeLocator {
     private struct RuntimeCandidate {
         let runtimeDirectoryURL: URL
@@ -34,17 +24,6 @@ struct BundledRuntimeLocator {
     }
 
     static let runtimeFolderName = "LlamaRuntime"
-    static let bundledServerName = "llama-server"
-    static let requiredLibraryNames = [
-        "libggml-base.0.dylib",
-        "libggml-blas.0.dylib",
-        "libggml-cpu.0.dylib",
-        "libggml-metal.0.dylib",
-        "libggml-rpc.0.dylib",
-        "libggml.0.dylib",
-        "libllama.0.dylib",
-        "libmtmd.0.dylib",
-    ]
 
     let bundle: Bundle
 
@@ -114,22 +93,6 @@ struct BundledRuntimeLocator {
             throw BundledRuntimeLocatorError.runtimeDirectoryMissing(candidate.runtimeDirectoryURL.path)
         }
 
-        let serverBinaryURL = candidate.runtimeDirectoryURL.appendingPathComponent(Self.bundledServerName)
-        guard fileManager.fileExists(atPath: serverBinaryURL.path) else {
-            throw BundledRuntimeLocatorError.serverBinaryMissing(serverBinaryURL.path)
-        }
-
-        guard fileManager.isExecutableFile(atPath: serverBinaryURL.path) else {
-            throw BundledRuntimeLocatorError.serverBinaryNotExecutable(serverBinaryURL.path)
-        }
-
-        for libraryName in Self.requiredLibraryNames {
-            let libraryURL = candidate.runtimeDirectoryURL.appendingPathComponent(libraryName)
-            guard fileManager.fileExists(atPath: libraryURL.path) else {
-                throw BundledRuntimeLocatorError.dependencyMissing(libraryURL.path)
-            }
-        }
-
         guard let modelFileURL = preferredModelNames
             .map({ candidate.modelDirectoryURL.appendingPathComponent($0) })
             .first(where: { fileManager.fileExists(atPath: $0.path) })
@@ -139,7 +102,6 @@ struct BundledRuntimeLocator {
 
         return ResolvedLlamaRuntime(
             runtimeDirectoryURL: candidate.runtimeDirectoryURL,
-            serverBinaryURL: serverBinaryURL,
             modelFileURL: modelFileURL,
             modelDisplayName: modelFileURL.lastPathComponent
         )

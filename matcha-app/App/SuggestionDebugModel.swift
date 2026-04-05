@@ -23,7 +23,7 @@ final class SuggestionDebugModel: ObservableObject {
     private let inputMonitor: InputMonitor
     private let overlayController: OverlayController
     private let suggestionInserter: SuggestionInserter
-    private let completionClient: LlamaCompletionClient
+    private let suggestionEngine: LlamaSuggestionEngine
     private let contextBuffer: ContextBuffer
     private let configuration: SuggestionConfiguration
 
@@ -41,7 +41,7 @@ final class SuggestionDebugModel: ObservableObject {
         inputMonitor: InputMonitor,
         overlayController: OverlayController,
         suggestionInserter: SuggestionInserter,
-        completionClient: LlamaCompletionClient,
+        suggestionEngine: LlamaSuggestionEngine,
         contextBuffer: ContextBuffer,
         configuration: SuggestionConfiguration
     ) {
@@ -50,7 +50,7 @@ final class SuggestionDebugModel: ObservableObject {
         self.inputMonitor = inputMonitor
         self.overlayController = overlayController
         self.suggestionInserter = suggestionInserter
-        self.completionClient = completionClient
+        self.suggestionEngine = suggestionEngine
         self.contextBuffer = contextBuffer
         self.configuration = configuration
         overlayState = overlayController.state
@@ -257,7 +257,7 @@ final class SuggestionDebugModel: ObservableObject {
             }
 
             do {
-                let result = try await completionClient.generateSuggestion(for: request)
+                let result = try await suggestionEngine.generateSuggestion(for: request)
                 guard !Task.isCancelled else {
                     return
                 }
@@ -467,10 +467,9 @@ final class SuggestionDebugModel: ObservableObject {
     }
 
     private func buildPrompt(from context: FocusedInputContext) -> String {
-        // The /completion endpoint is raw text continuation — not chat, not instruction following.
-        // Sending only the preceding text lets the model continue naturally from where the user left off.
-        // Any instruction preamble causes the model to continue the instruction document instead.
-        "\(String(context.precedingText.suffix(configuration.maxPrefixCharacters)))\n"
+        // The local decoder is doing raw continuation, not chat. Keeping the prompt as plain
+        // preceding text matches the successful curl experiments and avoids instruct-style slop.
+        String(context.precedingText.suffix(configuration.maxPrefixCharacters))
     }
 
     private func nextWorkID() -> UInt64 {
@@ -480,13 +479,12 @@ final class SuggestionDebugModel: ObservableObject {
 
     private func buildRequestPreview() -> String {
         """
-        POST /completion
-        id_slot: 0
-        cache_prompt: true
+        Backend: llama.swift
+        transport: in-process
         n_predict: \(configuration.maxPredictionTokens)
         temperature: \(configuration.temperature)
         top_p: \(configuration.topP)
-        stop: []
+        stop: first line only
         """
     }
 

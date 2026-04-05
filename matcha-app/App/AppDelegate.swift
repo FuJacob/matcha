@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     override init() {
         let permissionManager = PermissionManager()
-        let serverManager = LlamaServerManager()
+        let runtimeManager = LlamaRuntimeManager()
         let suppressionController = InputSuppressionController()
         let inputMonitor = InputMonitor(
             permissionProvider: { permissionManager.inputMonitoringGranted },
@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissionProvider: { permissionManager.accessibilityGranted },
             ignoredBundleIdentifier: Bundle.main.bundleIdentifier
         )
-        let runtimeModel = RuntimeBootstrapModel(serverManager: serverManager)
+        let runtimeModel = RuntimeBootstrapModel(runtimeManager: runtimeManager)
         let suggestionInserter = SuggestionInserter(suppressionController: suppressionController)
         let overlayController = OverlayController()
         let suggestionModel = SuggestionDebugModel(
@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             inputMonitor: inputMonitor,
             overlayController: overlayController,
             suggestionInserter: suggestionInserter,
-            completionClient: LlamaCompletionClient(serverManager: serverManager),
+            suggestionEngine: LlamaSuggestionEngine(runtimeManager: runtimeManager),
             contextBuffer: ContextBuffer(),
             configuration: .debugDefaults
         )

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A1C3E0012F90000100AAA001 /* LlamaSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A1C3E0002F90000100AAA001 /* LlamaSwift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		193741492F81DE7000BEC04F /* matcha-app.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "matcha-app.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1C3E0012F90000100AAA001 /* LlamaSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = "matcha-app";
 			packageProductDependencies = (
+				A1C3E0002F90000100AAA001 /* LlamaSwift */,
 			);
 			productName = "matcha-app";
 			productReference = 193741492F81DE7000BEC04F /* matcha-app.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = 193741402F81DE7000BEC04F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama.swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1937414A2F81DE7000BEC04F /* Products */;
 			projectDirPath = "";
@@ -123,6 +132,17 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mattt/llama.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.8665.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCBuildConfiguration section */
 		193741522F81DE7200BEC04F /* Debug */ = {
@@ -335,6 +355,14 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1C3E0002F90000100AAA001 /* LlamaSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama.swift" */;
+			productName = LlamaSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 193741412F81DE7000BEC04F /* Project object */;
 }

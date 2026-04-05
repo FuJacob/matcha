@@ -21,4 +21,3 @@ build/
 # Large model files — keep out of git
 *.gguf
 *.bin
-LlamaRuntime/models/

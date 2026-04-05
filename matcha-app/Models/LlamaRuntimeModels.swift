@@ -1,6 +1,6 @@
 import Foundation
 
-enum RuntimeBootstrapState: Equatable {
+enum RuntimeBootstrapState: Equatable, Sendable {
     case idle
     case starting(String)
     case loading(String)
@@ -20,10 +20,12 @@ enum RuntimeBootstrapState: Equatable {
     }
 }
 
-struct LlamaRuntimeConfiguration: Equatable {
+struct LlamaRuntimeConfiguration: Equatable, Sendable {
     let runtimeDirectoryPath: String?
     let preferredModelNames: [String]
-    let preferredPort: Int?
+    let contextWindowTokens: Int32
+    let batchSize: Int32
+    let gpuLayerCount: Int32
 
     /// Order matters here: the locator picks the first GGUF that exists.
     /// Keeping fallbacks behind the preferred model makes the startup path deterministic.
@@ -35,37 +37,41 @@ struct LlamaRuntimeConfiguration: Equatable {
             "qwen2-0_5b-instruct-q2_k.gguf",
             "qwen2-0_5b-instruct-q3_k_m.gguf",
         ],
-        preferredPort: nil
+        contextWindowTokens: 2048,
+        batchSize: 512,
+        gpuLayerCount: -1
     )
 }
 
-struct ResolvedLlamaRuntime: Equatable {
+struct ResolvedLlamaRuntime: Equatable, Sendable {
     let runtimeDirectoryURL: URL
-    let serverBinaryURL: URL
     let modelFileURL: URL
     let modelDisplayName: String
 }
 
-struct LlamaRuntimeDiagnostics: Equatable {
+struct LlamaRuntimeDiagnostics: Equatable, Sendable {
     var runtimeDirectoryPath: String?
-    var serverBinaryPath: String?
     var modelFilePath: String?
-    var serverPort: Int?
-    var lastHealthStatus: String?
+    var backendName: String?
+    var contextWindowTokens: Int?
+    var batchSize: Int?
+    var threadCount: Int?
+    var gpuLayerCount: Int?
+    var lastLoadStatus: String?
     var lastError: String?
-    var recentServerLog: String?
 }
 
-enum LlamaServerError: LocalizedError {
+enum LlamaRuntimeError: LocalizedError {
     case unavailable(String)
     case cancelled
+    case generationFailed(String)
 
     var errorDescription: String? {
         switch self {
-        case let .unavailable(message):
+        case let .unavailable(message), let .generationFailed(message):
             return message
         case .cancelled:
-            return "Runtime startup was cancelled."
+            return "Runtime work was cancelled."
         }
     }
 }
