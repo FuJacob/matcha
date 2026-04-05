@@ -2,6 +2,10 @@ import AppKit
 import ApplicationServices
 import Foundation
 
+/// File overview:
+/// Polls the Accessibility tree, gathers nearby candidate elements, and reduces them into one
+/// stable `FocusSnapshot`. This is the boundary where raw AX data becomes app-friendly focus state.
+///
 private struct AXFocusCandidate {
     let elementIdentifier: String
     let role: String
@@ -41,6 +45,7 @@ final class FocusTracker {
         self.ignoredBundleIdentifier = ignoredBundleIdentifier
     }
 
+    /// Starts periodic AX polling and immediately captures an initial snapshot.
     func start() {
         guard timer == nil else {
             refreshNow()
@@ -58,15 +63,18 @@ final class FocusTracker {
         RunLoop.main.add(timer, forMode: .common)
     }
 
+    /// Stops polling while leaving the most recent snapshot available to callers.
     func stop() {
         timer?.invalidate()
         timer = nil
     }
 
+    /// Performs a synchronous snapshot capture outside the normal polling cadence.
     func refreshNow() {
         snapshot = captureSnapshot()
     }
 
+    /// Captures the current frontmost application's focused element and reduces it into a snapshot.
     private func captureSnapshot() -> FocusSnapshot {
         guard permissionProvider() else {
             return FocusSnapshot(
@@ -111,6 +119,7 @@ final class FocusTracker {
         return snapshot(for: element, application: application)
     }
 
+    /// Resolves the best editable candidate around the focused AX node and materializes a focus snapshot.
     private func snapshot(for focusedElement: AXUIElement, application: NSRunningApplication) -> FocusSnapshot {
         let applicationName = application.localizedName ?? "Unknown"
         let bundleIdentifier = application.bundleIdentifier ?? "unknown.bundle"
@@ -273,6 +282,7 @@ final class FocusTracker {
         return ordered
     }
 
+    /// Extracts the AX properties Matcha needs from one candidate element near the current focus.
     private func candidateSnapshot(for element: AXUIElement, bundleIdentifier: String) -> AXFocusCandidate {
         let role = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: element) ?? "Unknown"
         let subrole = AXHelper.stringValue(for: kAXSubroleAttribute as CFString, on: element)
@@ -292,7 +302,8 @@ final class FocusTracker {
                 for: element,
                 selection: $0,
                 supportsBoundsForRange: supportedParameterizedAttributes.contains(kAXBoundsForRangeParameterizedAttribute as String),
-                supportsFrame: supportedAttributes.contains("AXFrame")
+                supportsFrame: supportedAttributes.contains("AXFrame"),
+                bundleIdentifier: bundleIdentifier
             )
         }
         let isSecure = isSecureElement(element: element, role: role, subrole: subrole)
@@ -322,11 +333,13 @@ final class FocusTracker {
         )
     }
 
+    /// Finds the best caret anchor available, preferring bounds-for-range and falling back to element frame.
     private func resolveCaretRect(
         for element: AXUIElement,
         selection: NSRange,
         supportsBoundsForRange: Bool,
-        supportsFrame: Bool
+        supportsFrame: Bool,
+        bundleIdentifier: String
     ) -> CGRect? {
         if supportsBoundsForRange,
            let rect = AXHelper.parameterizedRectValue(
@@ -334,7 +347,11 @@ final class FocusTracker {
                range: NSRange(location: selection.location, length: 0),
                on: element
            ), !rect.isEmpty {
-            return AXHelper.cocoaRect(fromAccessibilityRect: rect)
+            return AXHelper.cocoaRect(
+                fromAccessibilityRect: rect,
+                bundleIdentifier: bundleIdentifier,
+                isTextRect: true
+            )
         }
 
         if supportsBoundsForRange,
@@ -344,18 +361,19 @@ final class FocusTracker {
                range: NSRange(location: selection.location - 1, length: 1),
                on: element
            ), !rect.isEmpty {
-            let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: rect)
+            let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: rect, bundleIdentifier: bundleIdentifier, isTextRect: true)
             return CGRect(x: cocoaRect.maxX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
         }
 
         if supportsFrame,
            let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty {
-            return AXHelper.cocoaRect(fromAccessibilityRect: frame)
+            return AXHelper.cocoaRect(fromAccessibilityRect: frame, bundleIdentifier: bundleIdentifier, isTextRect: false)
         }
 
         return nil
     }
 
+    /// Detects secure inputs so Matcha can intentionally refuse to operate in sensitive fields.
     private func isSecureElement(element: AXUIElement, role: String, subrole: String?) -> Bool {
         let secureMarkers = [
             role.lowercased(),

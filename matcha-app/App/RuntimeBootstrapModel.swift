@@ -1,6 +1,10 @@
 import Combine
 import Foundation
 
+/// File overview:
+/// Owns app-facing runtime lifecycle state and republishes diagnostics from the in-process
+/// llama runtime. SwiftUI views depend on this type instead of performing bootstrap directly.
+///
 /// Keeps process lifecycle separate from SwiftUI view lifecycle.
 @MainActor
 final class RuntimeBootstrapModel: ObservableObject {
@@ -31,6 +35,7 @@ final class RuntimeBootstrapModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Starts runtime preparation exactly once and keeps duplicate launch attempts idempotent.
     /// Idempotent bootstrap ensures only one launch flow is active.
     func startIfNeeded() {
         guard startupTask == nil else {
@@ -55,6 +60,7 @@ final class RuntimeBootstrapModel: ObservableObject {
         }
     }
 
+    /// Cancels pending startup work and forwards shutdown to the underlying runtime manager.
     func stop() {
         startupTask?.cancel()
         startupTask = nil

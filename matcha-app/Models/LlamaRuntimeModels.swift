@@ -1,5 +1,10 @@
 import Foundation
 
+/// File overview:
+/// Shared value types for runtime bootstrap, model selection, diagnostics, and runtime errors.
+/// These types keep runtime state serializable, testable, and separate from the service layer.
+///
+/// Human-readable lifecycle states surfaced to the UI during runtime bootstrap.
 enum RuntimeBootstrapState: Equatable, Sendable {
     case idle
     case starting(String)
@@ -20,6 +25,7 @@ enum RuntimeBootstrapState: Equatable, Sendable {
     }
 }
 
+/// Startup configuration that controls which GGUF model to load and how large the runtime should be.
 struct LlamaRuntimeConfiguration: Equatable, Sendable {
     let runtimeDirectoryPath: String?
     let preferredModelNames: [String]
@@ -32,6 +38,8 @@ struct LlamaRuntimeConfiguration: Equatable, Sendable {
     static let `default` = LlamaRuntimeConfiguration(
         runtimeDirectoryPath: nil,
         preferredModelNames: [
+            "Llama-3.2-3B.Q4_K_M.gguf",
+            "Qwen3-1.7B.i1-Q4_K_M.gguf",
             "Qwen3.5-2B-Q4_K_M.gguf",
             "Qwen3.5-0.8B-Q3_K_M.gguf",
             "qwen2-0_5b-instruct-q2_k.gguf",
@@ -43,12 +51,14 @@ struct LlamaRuntimeConfiguration: Equatable, Sendable {
     )
 }
 
+/// The concrete runtime assets selected during bootstrap after checking available model files.
 struct ResolvedLlamaRuntime: Equatable, Sendable {
     let runtimeDirectoryURL: URL
     let modelFileURL: URL
     let modelDisplayName: String
 }
 
+/// Operator-facing runtime metadata used by the menu and startup diagnostics.
 struct LlamaRuntimeDiagnostics: Equatable, Sendable {
     var runtimeDirectoryPath: String?
     var modelFilePath: String?
@@ -61,6 +71,7 @@ struct LlamaRuntimeDiagnostics: Equatable, Sendable {
     var lastError: String?
 }
 
+/// Runtime failures surfaced before or during in-process generation.
 enum LlamaRuntimeError: LocalizedError {
     case unavailable(String)
     case cancelled

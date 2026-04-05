@@ -2,11 +2,16 @@ import Combine
 import CoreGraphics
 import Foundation
 
+/// File overview:
+/// Coordinates the entire inline-completion pipeline. It listens to focus and input changes,
+/// schedules debounced generation, validates freshness, drives the ghost overlay, and accepts
+/// suggestions with `Tab`.
+///
 /// Owns debounce, generation, stale-result rejection, and the ghost-text overlay lifecycle.
 /// The important architectural choice is that overlay visibility is derived from the same
 /// canonical ready suggestion state that powers `Tab` acceptance.
 @MainActor
-final class SuggestionDebugModel: ObservableObject {
+final class SuggestionCoordinator: ObservableObject {
     @Published private(set) var state: SuggestionDebugState = .idle
     @Published private(set) var overlayState: OverlayState = .hidden(reason: "Overlay idle.")
     @Published private(set) var latestSuggestionPreview: String?
@@ -34,6 +39,7 @@ final class SuggestionDebugModel: ObservableObject {
     private var lastLoggedMessage: String?
     private var readyContext: FocusedInputContext?
     private var readyResult: SuggestionResult?
+    private let consoleStages: Set<String> = ["generating", "ready", "empty-result", "failed"]
 
     init(
         permissionManager: PermissionManager,
@@ -81,10 +87,12 @@ final class SuggestionDebugModel: ObservableObject {
         }
     }
 
+    /// Reconciles coordinator state with the current permission and focus environment.
     func start() {
         reconcileWithCurrentEnvironment()
     }
 
+    /// Cancels any pending work and detaches long-lived callbacks during shutdown.
     func stop() {
         cancelPredictionWork()
         hideOverlay(reason: "Overlay hidden because Matcha stopped observing suggestions.")
@@ -198,6 +206,7 @@ final class SuggestionDebugModel: ObservableObject {
         }
     }
 
+    /// Refreshes focus after debounce, materializes a stable context, and starts generation.
     private func generateFromCurrentFocus(workID: UInt64) async {
         guard workID == latestWorkID else {
             return
@@ -238,7 +247,12 @@ final class SuggestionDebugModel: ObservableObject {
             generation: context.generation,
             maxPredictionTokens: configuration.maxPredictionTokens,
             temperature: configuration.temperature,
-            topP: configuration.topP
+            topK: configuration.topK,
+            topP: configuration.topP,
+            minP: configuration.minP,
+            repetitionPenalty: configuration.repetitionPenalty,
+            maxSuffixCharacters: configuration.maxSuffixCharacters,
+            customAIInstructions: configuration.customAIInstructions
         )
 
         state = .generating
@@ -278,6 +292,7 @@ final class SuggestionDebugModel: ObservableObject {
         }
     }
 
+    /// Promotes a generated result to `ready` only when it is still fresh for the current field.
     private func apply(result: SuggestionResult, workID: UInt64) async {
         guard workID == latestWorkID else {
             return
@@ -361,6 +376,7 @@ final class SuggestionDebugModel: ObservableObject {
         )
     }
 
+    /// Converts a runtime or engine failure into visible coordinator state and clears stale UI.
     private func applyFailure(_ message: String, workID: UInt64) async {
         guard workID == latestWorkID else {
             return
@@ -372,6 +388,7 @@ final class SuggestionDebugModel: ObservableObject {
         logStage("failed", workID: workID, generation: latestGenerationNumber, message: message)
     }
 
+    /// Recomputes whether prediction should be enabled based on current permissions and focus support.
     private func reconcileWithCurrentEnvironment() {
         guard permissionManager.inputMonitoringGranted else {
             disablePredictions(reason: "Input Monitoring permission is required before Matcha can react to typing.")
@@ -389,6 +406,7 @@ final class SuggestionDebugModel: ObservableObject {
         }
     }
 
+    /// Keeps an already-ready suggestion aligned with live focus snapshots and invalidates drift.
     private func reconcileReadySuggestion(with snapshot: FocusSnapshot) {
         guard case .ready = state, let readyContext, let readyResult else {
             if overlayState.isVisible {
@@ -435,6 +453,7 @@ final class SuggestionDebugModel: ObservableObject {
         state = .idle
     }
 
+    /// Fully disables prediction, clears cached context, and updates UI messaging with the cause.
     private func disablePredictions(reason: String) {
         cancelPredictionWork()
         contextBuffer.clear()
@@ -444,6 +463,7 @@ final class SuggestionDebugModel: ObservableObject {
         latestStageMessage = "Disabled: \(reason)"
     }
 
+    /// Clears the active suggestion and optionally preserves or drops diagnostic breadcrumbs.
     private func clearSuggestion(clearDiagnostics: Bool = false) {
         latestSuggestionPreview = nil
         latestLatencyMilliseconds = nil
@@ -458,6 +478,7 @@ final class SuggestionDebugModel: ObservableObject {
         }
     }
 
+    /// Cancels debounce/generation tasks and advances the work id so late completions are ignored.
     private func cancelPredictionWork() {
         debounceTask?.cancel()
         generationTask?.cancel()
@@ -466,28 +487,37 @@ final class SuggestionDebugModel: ObservableObject {
         latestWorkID &+= 1
     }
 
+    /// Builds the prompt contract that the local model sees for the current focused field.
     private func buildPrompt(from context: FocusedInputContext) -> String {
-        // The local decoder is doing raw continuation, not chat. Keeping the prompt as plain
-        // preceding text matches the successful curl experiments and avoids instruct-style slop.
-        String(context.precedingText.suffix(configuration.maxPrefixCharacters))
-    }
+        let prefix = String(context.precedingText.suffix(configuration.maxPrefixCharacters))
 
+        // Simply prefix the instructions exactly like the working curl command 
+        return "\(configuration.customAIInstructions)\n\n\(prefix)"
+    }
+    
+    
     private func nextWorkID() -> UInt64 {
         latestWorkID &+= 1
         return latestWorkID
     }
 
+    /// Produces a compact operator-facing summary of the current generation configuration.
     private func buildRequestPreview() -> String {
         """
         Backend: llama.swift
         transport: in-process
         n_predict: \(configuration.maxPredictionTokens)
         temperature: \(configuration.temperature)
+        top_k: \(configuration.topK)
         top_p: \(configuration.topP)
+        min_p: \(configuration.minP)
+        repetition_penalty: \(configuration.repetitionPenalty)
+        prompt_style: raw prefix completion
         stop: first line only
         """
     }
 
+    /// Accepts the current suggestion only if the field, generation, and visible overlay still match.
     private func acceptCurrentSuggestion() -> Bool {
         focusModel.refreshNow()
         let snapshot = focusModel.snapshot
@@ -552,6 +582,7 @@ final class SuggestionDebugModel: ObservableObject {
         return true
     }
 
+    /// Returns control of `Tab` to the host app and clears stale suggestion UI.
     private func passTabThrough(reason: String) -> Bool {
         let generation = latestGenerationNumber
         cancelPredictionWork()
@@ -588,6 +619,7 @@ final class SuggestionDebugModel: ObservableObject {
         return visibleText == text
     }
 
+    /// Shows or repositions ghost text while keeping overlay state derived from ready suggestions.
     private func presentOverlay(text: String, at caretRect: CGRect) {
         guard !text.isEmpty else {
             hideOverlay(reason: "Overlay hidden because the suggestion text was empty.")
@@ -631,6 +663,7 @@ final class SuggestionDebugModel: ObservableObject {
         }
     }
 
+    /// Emits compact console summaries plus full prompt/output blocks for high-signal stages.
     private func logStage(
         _ stage: String,
         workID: UInt64,
@@ -642,6 +675,9 @@ final class SuggestionDebugModel: ObservableObject {
         normalizedOutput: String? = nil
     ) {
         latestStageMessage = message
+        guard consoleStages.contains(stage) else {
+            return
+        }
 
         var parts = [
             "[Suggestion]",
@@ -655,36 +691,21 @@ final class SuggestionDebugModel: ObservableObject {
 
         parts.append("message=\(message)")
 
-        if let request {
-            parts.append("request=\(makeDebugPreview(request))")
-        }
-
-        if let prompt {
+        if stage == "generating", let prompt {
             parts.append("prompt=\(makeDebugPreview(prompt))")
         }
 
-        if let rawOutput {
-            parts.append("raw=\(makeDebugPreview(rawOutput))")
-        }
-
-        if let normalizedOutput {
-            parts.append("normalized=\(makeDebugPreview(normalizedOutput))")
+        if stage != "generating" {
+            let generationOutput = normalizedOutput ?? rawOutput
+            if let generationOutput {
+                parts.append("output=\(makeDebugPreview(generationOutput))")
+            }
         }
 
         let summaryLine = parts.joined(separator: " ")
         logLine(summaryLine)
 
-        if let request {
-            logTextBlock(
-                kind: "request",
-                stage: stage,
-                workID: workID,
-                generation: generation,
-                text: request
-            )
-        }
-
-        if let prompt {
+        if stage == "generating", let prompt {
             logTextBlock(
                 kind: "prompt",
                 stage: stage,
@@ -694,45 +715,22 @@ final class SuggestionDebugModel: ObservableObject {
             )
         }
 
-        if let rawOutput {
+        if stage != "generating", let generationOutput = normalizedOutput ?? rawOutput {
             logTextBlock(
-                kind: "raw-output",
+                kind: "output",
                 stage: stage,
                 workID: workID,
                 generation: generation,
-                text: rawOutput
-            )
-        }
-
-        if let normalizedOutput {
-            logTextBlock(
-                kind: "normalized-output",
-                stage: stage,
-                workID: workID,
-                generation: generation,
-                text: normalizedOutput
+                text: generationOutput
             )
         }
     }
 
     private func logOverlay(_ stage: String, message: String, text: String? = nil, caretRect: CGRect? = nil) {
-        var parts = [
-            "[Overlay]",
-            "stage=\(stage)",
-            "message=\(message)"
-        ]
-
-        if let text {
-            parts.append("text=\(makeDebugPreview(text))")
-        }
-
-        if let caretRect {
-            parts.append(
-                "rect=(\(Int(caretRect.minX)),\(Int(caretRect.minY)),\(Int(caretRect.width)),\(Int(caretRect.height)))"
-            )
-        }
-
-        logLine(parts.joined(separator: " "))
+        _ = stage
+        _ = message
+        _ = text
+        _ = caretRect
     }
 
     private func logLine(_ line: String) {
@@ -765,6 +763,7 @@ final class SuggestionDebugModel: ObservableObject {
         )
     }
 
+    /// Produces an escaped single-line preview suitable for compact logs and menu summaries.
     private func makeDebugPreview(_ text: String) -> String {
         if text.isEmpty {
             return "<empty>"

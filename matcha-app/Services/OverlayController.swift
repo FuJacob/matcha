@@ -2,6 +2,10 @@ import AppKit
 import Foundation
 import SwiftUI
 
+/// File overview:
+/// Owns the non-activating floating panel that renders ghost text near the caret. AppKit window
+/// behavior stays isolated here so the coordinator only has to reason about overlay state.
+///
 /// Owns the transparent floating panel that renders ghost text near the caret.
 /// Keeping window management here prevents AppKit concerns from leaking into the
 /// suggestion state machine.
@@ -32,6 +36,7 @@ final class OverlayController {
         return panel
     }()
 
+    /// Sizes and positions the overlay next to the reported caret bounds for the current field.
     func showSuggestion(_ text: String, at caretRect: CGRect) {
         guard !text.isEmpty else {
             hide(reason: "Overlay not shown because the suggestion was empty.")
@@ -56,6 +61,7 @@ final class OverlayController {
         state = .visible(text: text, caretRect: caretRect)
     }
 
+    /// Hides the floating panel and records why the overlay is no longer visible.
     func hide(reason: String) {
         panel.orderOut(nil)
         state = .hidden(reason: reason)
@@ -71,10 +77,36 @@ private struct GhostSuggestionView: View {
     let text: String
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 14, weight: .regular))
-            .foregroundStyle(Color.secondary.opacity(0.78))
-            .lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(text)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Color.secondary.opacity(0.78))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: true)
+
+            GhostKeycap(label: "Tab")
+        }
+        .fixedSize(horizontal: true, vertical: true)
+    }
+}
+
+private struct GhostKeycap: View {
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .foregroundStyle(Color.secondary.opacity(0.72))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+            )
             .fixedSize(horizontal: true, vertical: true)
     }
 }

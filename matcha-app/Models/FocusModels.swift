@@ -1,6 +1,10 @@
 import CoreGraphics
 import Foundation
 
+/// File overview:
+/// Pure data models for focused-input state, AX capability support, and stale-result signatures.
+/// These types let the rest of Matcha reason about focus without depending on raw Accessibility values.
+///
 /// These are the concrete Accessibility capabilities Matcha needs before it can safely assist a field.
 /// The key lesson is that "editable role" is not enough; we care about operational capability.
 enum FocusCapabilityRequirement: String, CaseIterable, Equatable {

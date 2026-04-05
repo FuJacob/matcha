@@ -1,6 +1,10 @@
 import Combine
 import Foundation
 
+/// File overview:
+/// Publishes focused-input snapshots to SwiftUI and other main-actor consumers. It keeps
+/// AX polling details hidden behind a small observable interface.
+///
 /// Bridges the polling tracker into SwiftUI-facing published state.
 @MainActor
 final class FocusTrackingModel: ObservableObject {
@@ -26,6 +30,7 @@ final class FocusTrackingModel: ObservableObject {
         }
     }
 
+    /// Starts focus polling once and treats later calls as a request for an immediate refresh.
     func start() {
         guard !isStarted else {
             tracker.refreshNow()
@@ -36,6 +41,7 @@ final class FocusTrackingModel: ObservableObject {
         tracker.start()
     }
 
+    /// Stops polling while leaving the last captured snapshot available for UI consumers.
     func stop() {
         isStarted = false
         tracker.stop()

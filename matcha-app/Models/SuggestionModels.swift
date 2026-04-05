@@ -1,26 +1,40 @@
 import CoreGraphics
 import Foundation
 
+/// File overview:
+/// Shared value types for suggestion configuration, prompt requests, normalized results,
+/// and overlay state. This file is the contract boundary between focus capture,
+/// generation orchestration, runtime inference, and UI rendering.
+///
 /// Debug defaults live in one place so the first prediction slice has deterministic behavior.
 struct SuggestionConfiguration: Equatable, Sendable {
     let maxPredictionTokens: Int
     let debounceMilliseconds: Int
     let temperature: Double
+    let topK: Int
     let topP: Double
+    let minP: Double
+    let repetitionPenalty: Double
     let maxPrefixCharacters: Int
+    let maxSuffixCharacters: Int
+    let customAIInstructions: String
 
     static let debugDefaults = SuggestionConfiguration(
-        // The old working prototype produced noticeably better inline completions with a slightly
-        // longer budget. 24 tokens is still short, but it gives the model enough room to finish
-        // a clause instead of clipping itself after a few words.
-        maxPredictionTokens: 24,
+        // Simple fast inline completion prediction size
+        maxPredictionTokens: 8,
         // Very small debounces feel fast, but many host apps do not update their AX text state
         // within a single frame. A more conservative delay improves prompt freshness.
         debounceMilliseconds: 180,
-        temperature: 0.2,
-        topP: 0.9,
+        // Match the working ollama cURL parameters
+        temperature: 0.15,
+        topK: 40,
+        topP: 0.75,
+        minP: 0.05,
+        repetitionPenalty: 1.15,
         // Prompt windows should stay small. Sending an entire Xcode buffer kills latency for no gain.
-        maxPrefixCharacters: 192
+        maxPrefixCharacters: 192,
+        maxSuffixCharacters: 192,
+        customAIInstructions: "Continue the text with only the next few words."
     )
 }
 
@@ -65,15 +79,22 @@ struct FocusedInputContext: Equatable, Sendable {
     }
 }
 
+/// One generation request sent from the coordinator into the suggestion engine.
 struct SuggestionRequest: Equatable, Sendable {
     let context: FocusedInputContext
     let prompt: String
     let generation: UInt64
     let maxPredictionTokens: Int
     let temperature: Double
+    let topK: Int
     let topP: Double
+    let minP: Double
+    let repetitionPenalty: Double
+    let maxSuffixCharacters: Int
+    let customAIInstructions: String
 }
 
+/// The engine's normalized response, including raw model text for debugging.
 struct SuggestionResult: Equatable, Sendable {
     let generation: UInt64
     let rawText: String
@@ -82,6 +103,7 @@ struct SuggestionResult: Equatable, Sendable {
     let finishReason: String
 }
 
+/// High-level suggestion states surfaced to the menu and overlay logic.
 enum SuggestionDebugState: Equatable {
     case idle
     case disabled(String)
@@ -164,6 +186,7 @@ enum OverlayState: Equatable {
     }
 }
 
+/// Errors specific to suggestion generation and normalization.
 enum SuggestionClientError: LocalizedError {
     case unavailable(String)
     case generationFailed(String)

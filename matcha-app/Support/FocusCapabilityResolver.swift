@@ -1,5 +1,9 @@
 import Foundation
 
+/// File overview:
+/// Scores nearby AX candidates and decides which one, if any, is the best editable target
+/// for Matcha. This keeps heuristic choice separate from raw AX crawling in `FocusTracker`.
+///
 /// One nearby AX node scored by whether it exposes the capabilities Matcha needs.
 struct FocusCapabilityCandidate: Equatable {
     let elementIdentifier: String
@@ -14,6 +18,7 @@ struct FocusCapabilityCandidate: Equatable {
     let isSecure: Bool
 }
 
+/// The derived score and missing-capability breakdown for one candidate element.
 struct FocusCapabilityCandidateEvaluation: Equatable {
     let candidate: FocusCapabilityCandidate
     let missingCapabilities: [FocusCapabilityRequirement]
@@ -25,6 +30,7 @@ struct FocusCapabilityCandidateEvaluation: Equatable {
 }
 
 /// This is the resolver output, including the best partial candidate for diagnostics.
+/// The resolver's final answer about which candidate to trust and why.
 struct FocusCapabilityResolution: Equatable {
     let selectedEvaluation: FocusCapabilityCandidateEvaluation?
     let inspectedCandidateCount: Int
@@ -54,6 +60,7 @@ struct FocusCapabilityResolution: Equatable {
 /// We rank candidates by capability first and role hints second.
 /// This is more robust than assuming the focused node will always be a text field.
 enum FocusCapabilityResolver {
+    /// Chooses the strongest editable candidate from the nearby AX elements discovered by `FocusTracker`.
     static func resolve(candidates: [FocusCapabilityCandidate]) -> FocusCapabilityResolution {
         var bestPartial: FocusCapabilityCandidateEvaluation?
 
@@ -78,6 +85,7 @@ enum FocusCapabilityResolver {
         )
     }
 
+    /// Computes the capability gaps and heuristic score for a single candidate element.
     static func evaluate(_ candidate: FocusCapabilityCandidate) -> FocusCapabilityCandidateEvaluation {
         let missingCapabilities = FocusCapabilityRequirement.allCases.filter { requirement in
             switch requirement {
@@ -102,6 +110,7 @@ enum FocusCapabilityResolver {
         )
     }
 
+    /// Breaks ties between two scored candidates using editability strength and support completeness.
     private static func shouldReplace(
         _ currentBest: FocusCapabilityCandidateEvaluation?,
         with candidate: FocusCapabilityCandidateEvaluation

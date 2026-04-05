@@ -101,7 +101,7 @@
 			mainGroup = 193741402F81DE7000BEC04F;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama.swift" */,
+				A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1937414A2F81DE7000BEC04F /* Products */;
@@ -132,17 +132,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama.swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mattt/llama.swift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.8665.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCBuildConfiguration section */
 		193741522F81DE7200BEC04F /* Debug */ = {
@@ -356,10 +345,21 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mattt/llama.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.8665.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A1C3E0002F90000100AAA001 /* LlamaSwift */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama.swift" */;
+			package = A1C3E0022F90000100AAA001 /* XCRemoteSwiftPackageReference "llama" */;
 			productName = LlamaSwift;
 		};
 /* End XCSwiftPackageProductDependency section */

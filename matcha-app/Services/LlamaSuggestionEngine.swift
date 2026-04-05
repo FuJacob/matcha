@@ -1,5 +1,9 @@
 import Foundation
 
+/// File overview:
+/// Wraps the raw llama runtime with prompt/result normalization that is specific to inline
+/// completion. This is where raw generated text becomes a short suggestion Matcha can safely show.
+///
 /// Keeps prompt normalization separate from the raw llama runtime.
 /// That separation matters because prompt strategy changes far more often than model lifecycle code.
 @MainActor
@@ -10,6 +14,7 @@ final class LlamaSuggestionEngine {
         self.runtimeManager = runtimeManager
     }
 
+    /// Executes one generation request and packages the raw and normalized result for the coordinator.
     func generateSuggestion(for request: SuggestionRequest) async throws -> SuggestionResult {
         do {
             let startTime = Date()
@@ -17,7 +22,10 @@ final class LlamaSuggestionEngine {
                 prompt: request.prompt,
                 maxPredictionTokens: request.maxPredictionTokens,
                 temperature: request.temperature,
-                topP: request.topP
+                topK: request.topK,
+                topP: request.topP,
+                minP: request.minP,
+                repetitionPenalty: request.repetitionPenalty
             )
             try Task.checkCancellation()
 
@@ -40,6 +48,8 @@ final class LlamaSuggestionEngine {
         }
     }
 
+    /// Normalizes raw model output into a short inline completion by stripping control noise,
+    /// removing echoes, and limiting the result to the first line.
     private func normalizeSuggestion(_ rawSuggestion: String, for request: SuggestionRequest) -> String {
         var normalized = rawSuggestion.replacingOccurrences(of: "\r", with: "")
 
@@ -49,6 +59,17 @@ final class LlamaSuggestionEngine {
 
         if let firstLine = normalized.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first {
             normalized = String(firstLine)
+        }
+        
+        let structuralTags = [
+            "<|im_end|>", 
+            "<|im_start|>"
+        ]
+        
+        for tag in structuralTags {
+            if let tagRange = normalized.range(of: tag) {
+                normalized = String(normalized[..<tagRange.lowerBound])
+            }
         }
 
         normalized = normalized.trimmingCharacters(in: .controlCharacters.union(.newlines))

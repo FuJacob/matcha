@@ -1,5 +1,9 @@
 import Foundation
 
+/// File overview:
+/// Resolves which GGUF assets Matcha should load by checking the app bundle first and the
+/// development tree second. This keeps startup logic deterministic while still supporting local dev.
+///
 enum BundledRuntimeLocatorError: LocalizedError {
     case runtimeDirectoryMissing(String)
     case modelMissing(String)
@@ -31,6 +35,7 @@ struct BundledRuntimeLocator {
         self.bundle = bundle
     }
 
+    /// Finds the first preferred bundled model that exists and returns the fully resolved runtime asset paths.
     func resolve(configuration: LlamaRuntimeConfiguration) throws -> ResolvedLlamaRuntime {
         var lastError: Error?
 
@@ -46,6 +51,7 @@ struct BundledRuntimeLocator {
         throw lastError ?? BundledRuntimeLocatorError.runtimeDirectoryMissing("No runtime candidates were available.")
     }
 
+    /// Enumerates possible runtime directories in bundle-first, development-second order.
     private func runtimeCandidates(for configuration: LlamaRuntimeConfiguration) -> [RuntimeCandidate] {
         if let runtimeDirectoryPath = configuration.runtimeDirectoryPath, !runtimeDirectoryPath.isEmpty {
             let runtimeDirectoryURL = URL(fileURLWithPath: runtimeDirectoryPath, isDirectory: true)
@@ -82,6 +88,7 @@ struct BundledRuntimeLocator {
         return candidates
     }
 
+    /// Verifies that a candidate directory contains one of the preferred model files.
     private func validate(
         candidate: RuntimeCandidate,
         preferredModelNames: [String]

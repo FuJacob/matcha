@@ -1,5 +1,9 @@
 import Foundation
 
+/// File overview:
+/// Assigns monotonically increasing generations to focused-input snapshots so asynchronous
+/// suggestion work can prove whether a result is still fresh for the current field.
+///
 /// Assigns generations to focused input snapshots so stale completions can be rejected safely.
 @MainActor
 final class ContextBuffer {
@@ -9,6 +13,8 @@ final class ContextBuffer {
     private var lastElementIdentifier: String?
     private var nextGeneration: UInt64 = 0
 
+    /// Converts the latest focus snapshot into a stable context and bumps the generation when
+    /// either the field identity or its text/selection signature changes.
     func materialize(from snapshot: FocusedInputSnapshot) -> FocusedInputContext {
         let signature = snapshot.contentSignature
 
@@ -26,6 +32,7 @@ final class ContextBuffer {
         return context
     }
 
+    /// Resets the generation baseline when the suggestion pipeline is fully disabled.
     func clear() {
         lastSignature = nil
         lastElementIdentifier = nil

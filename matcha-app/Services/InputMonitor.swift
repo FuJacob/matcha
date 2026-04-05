@@ -1,6 +1,11 @@
 import ApplicationServices
 import Foundation
 
+/// File overview:
+/// Owns the global keyboard event tap used to detect typing, navigation, dismissal keys,
+/// and `Tab` acceptance. This is the boundary between raw CGEvents and Matcha's smaller
+/// input-event vocabulary.
+///
 /// Only the event categories needed for typing-triggered prediction are modeled here.
 struct CapturedInputEvent: Equatable {
     enum Kind: String, Equatable {
@@ -58,14 +63,17 @@ final class InputMonitor {
         self.suppressionController = suppressionController
     }
 
+    /// Installs the event tap and begins listening for global keyboard activity.
     func start() {
         refresh()
     }
 
+    /// Removes the event tap and stops observing keyboard events.
     func stop() {
         destroyTap()
     }
 
+    /// Re-evaluates whether the tap should exist after a permission change.
     func refresh() {
         if permissionProvider() {
             installTapIfNeeded()
@@ -74,6 +82,7 @@ final class InputMonitor {
         }
     }
 
+    /// Creates and enables the CGEvent tap only when permissions allow observation.
     private func installTapIfNeeded() {
         guard eventTap == nil else {
             onTapStateChange?(true)
@@ -116,6 +125,7 @@ final class InputMonitor {
         onTapStateChange?(true)
     }
 
+    /// Tears down the event tap and run-loop source to avoid leaking global event observers.
     private func destroyTap() {
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
@@ -131,6 +141,7 @@ final class InputMonitor {
         onTapStateChange?(false)
     }
 
+    /// Routes each raw keyboard event through suppression, classification, and optional interception.
     private func handleTap(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
@@ -154,6 +165,7 @@ final class InputMonitor {
         }
     }
 
+    /// Reduces a raw CGEvent into the smaller event categories the suggestion coordinator understands.
     private func classify(event: CGEvent) -> CapturedInputEvent {
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags

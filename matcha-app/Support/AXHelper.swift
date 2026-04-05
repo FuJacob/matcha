@@ -2,6 +2,11 @@ import AppKit
 import ApplicationServices
 import Foundation
 
+/// File overview:
+/// Wraps the low-level Accessibility APIs behind Swift-friendly helpers for typed values,
+/// tree traversal, element identity, and coordinate normalization. This file intentionally
+/// contains the "ugly edge" of interacting with AX.
+///
 /// Wraps raw Accessibility APIs so the rest of the codebase can stay mostly Swift-native.
 /// AX APIs traffic in loosely typed Core Foundation values, so this file is intentionally the "ugly edge".
 enum AXHelper {
@@ -40,6 +45,7 @@ enum AXHelper {
         return names as? [String] ?? []
     }
 
+    /// Reads a string AX attribute when the underlying value is present and type-compatible.
     static func stringValue(for attribute: CFString, on element: AXUIElement) -> String? {
         guard let value = copyAttributeValue(attribute, on: element) else {
             return nil
@@ -64,6 +70,7 @@ enum AXHelper {
         return number.boolValue
     }
 
+    /// Reads an `AXValue`-backed range attribute such as the current selection.
     static func rangeValue(for attribute: CFString, on element: AXUIElement) -> NSRange? {
         guard let rawValue = copyAttributeValue(attribute, on: element),
               CFGetTypeID(rawValue) == AXValueGetTypeID()
@@ -84,6 +91,7 @@ enum AXHelper {
         return NSRange(location: range.location, length: range.length)
     }
 
+    /// Reads an `AXValue`-backed rectangle attribute such as `AXFrame`.
     static func rectValue(for attribute: CFString, on element: AXUIElement) -> CGRect? {
         guard let rawValue = copyAttributeValue(attribute, on: element),
               CFGetTypeID(rawValue) == AXValueGetTypeID()
@@ -104,6 +112,7 @@ enum AXHelper {
         return rect
     }
 
+    /// Reads a parameterized rectangle attribute such as `AXBoundsForRange`.
     static func parameterizedRectValue(
         for attribute: CFString,
         range: NSRange,
@@ -143,6 +152,7 @@ enum AXHelper {
         return value as AnyObject?
     }
 
+    /// Returns the currently focused UI element from the system-wide AX object.
     static func focusedElement() -> AXUIElement? {
         let systemWideElement = AXUIElementCreateSystemWide()
         var value: CFTypeRef?
@@ -191,6 +201,7 @@ enum AXHelper {
         return "\(pid)-\(CFHash(element))"
     }
 
+    /// Builds a stable identifier for an AX element by combining bundle identity and AX identity.
     static func elementIdentifier(for element: AXUIElement, bundleIdentifier: String) -> String {
         "\(bundleIdentifier)-\(elementIdentity(for: element))"
     }
@@ -222,36 +233,61 @@ enum AXHelper {
         knownReadOnlyRoles.contains(role)
     }
 
-    /// AX bounds from the text-range APIs are already in global screen coordinates that line up
-    /// with AppKit point space. The only conversion Matcha should do here is the Y-axis flip
-    /// into Cocoa's bottom-left origin.
-    static func cocoaRect(fromAccessibilityRect rect: CGRect) -> CGRect {
+    static let requiresPixelToPointScalingBundles: Set<String> = [
+        "com.google.Chrome",
+        "com.google.Chrome.canary",
+        "com.microsoft.edgemac",
+        "com.microsoft.edgemac.Canary",
+        "com.brave.Browser",
+        "company.thebrowser.Browser",
+        "com.vivaldi.Vivaldi",
+        "org.chromium.Chromium",
+        "com.tinyspeck.slackmacgap",
+        "com.github.Electron",
+        "com.valvesoftware.discord",
+        "com.figma.Desktop",
+        "com.superhuman.electronic-superman"
+    ]
+
+    /// Converts raw Accessibility coordinates into global AppKit points.
+    /// Some applications (like Chromium-based browsers) incorrectly return raw physical 
+    /// backing pixels for text ranges, so `isTextRect` allows conditionally scaling them back down.
+    /// Normalizes raw Accessibility coordinates into global AppKit points and applies per-app scaling fixes.
+    static func cocoaRect(fromAccessibilityRect rect: CGRect, bundleIdentifier: String, isTextRect: Bool) -> CGRect {
         guard !rect.isNull, rect != .zero else {
             return rect
         }
 
-        for screen in NSScreen.screens {
-            let converted = CGRect(
-                x: rect.origin.x,
-                y: screen.frame.maxY - rect.origin.y - rect.height,
-                width: rect.width,
-                height: rect.height
-            )
+        var normalizedRect = rect
 
-            if converted.intersects(screen.frame.insetBy(dx: -48, dy: -48)) {
-                return converted
-            }
+        // Chromium often returns physical pixels instead of Cocoa points for text ranges on Retina.
+        if isTextRect && requiresPixelToPointScalingBundles.contains(bundleIdentifier) {
+            // Find the screen this coordinate falls on (approximate) to determine the scale factor.
+            let fallbackScale = NSScreen.main?.backingScaleFactor ?? 2.0
+            let scale: CGFloat = NSScreen.screens.first(where: {
+                $0.frame.contains(CGPoint(x: rect.origin.x / fallbackScale, y: $0.frame.maxY - (rect.origin.y / fallbackScale)))
+            })?.backingScaleFactor ?? fallbackScale
+            
+            normalizedRect = CGRect(
+                x: rect.origin.x / scale,
+                y: rect.origin.y / scale,
+                width: rect.width / scale,
+                height: rect.height / scale
+            )
         }
 
-        guard let mainScreen = NSScreen.main else {
-            return rect
+        // Global AX Coordinates have a Top-Left origin relative to the PRIMARY screen.
+        // AppKit Coordinates have a Bottom-Left origin relative to the PRIMARY screen.
+        // Therefore, we solely use the primary screen's height to flip the Y axis.
+        guard let primaryScreen = NSScreen.screens.first else {
+            return normalizedRect
         }
 
         return CGRect(
-            x: rect.origin.x,
-            y: mainScreen.frame.maxY - rect.origin.y - rect.height,
-            width: rect.width,
-            height: rect.height
+            x: normalizedRect.origin.x,
+            y: primaryScreen.frame.height - normalizedRect.origin.y - normalizedRect.height,
+            width: normalizedRect.width,
+            height: normalizedRect.height
         )
     }
 }

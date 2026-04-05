@@ -1,6 +1,11 @@
 import AppKit
 import Combine
 
+/// File overview:
+/// Builds Matcha's dependency graph and starts the long-lived services that power
+/// permissions, focus tracking, suggestion generation, overlay rendering, and acceptance.
+/// This file is the app's composition root.
+///
 /// App lifecycle callbacks happen on the main thread; marking this type clarifies actor expectations.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -8,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let runtimeModel: RuntimeBootstrapModel
     let focusModel: FocusTrackingModel
     let inputMonitor: InputMonitor
-    let suggestionModel: SuggestionDebugModel
+    let suggestionCoordinator: SuggestionCoordinator
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -28,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let runtimeModel = RuntimeBootstrapModel(runtimeManager: runtimeManager)
         let suggestionInserter = SuggestionInserter(suppressionController: suppressionController)
         let overlayController = OverlayController()
-        let suggestionModel = SuggestionDebugModel(
+        let suggestionCoordinator = SuggestionCoordinator(
             permissionManager: permissionManager,
             focusModel: focusModel,
             inputMonitor: inputMonitor,
@@ -43,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.runtimeModel = runtimeModel
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
-        self.suggestionModel = suggestionModel
+        self.suggestionCoordinator = suggestionCoordinator
         super.init()
 
         permissionManager.$inputMonitoringGranted
@@ -53,15 +58,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
     }
 
+    /// Starts runtime and observer services once AppKit reports that app launch finished.
     func applicationDidFinishLaunching(_ notification: Notification) {
         runtimeModel.startIfNeeded()
         focusModel.start()
         inputMonitor.start()
-        suggestionModel.start()
+        suggestionCoordinator.start()
     }
 
+    /// Stops long-lived services before process exit so observers and runtime resources detach cleanly.
     func applicationWillTerminate(_ notification: Notification) {
-        suggestionModel.stop()
+        suggestionCoordinator.stop()
         inputMonitor.stop()
         focusModel.stop()
         runtimeModel.stop()

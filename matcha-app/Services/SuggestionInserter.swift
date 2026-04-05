@@ -1,6 +1,10 @@
 import ApplicationServices
 import Foundation
 
+/// File overview:
+/// Commits accepted suggestions back into the host app by synthesizing Unicode keyboard events.
+/// This keeps acceptance simple and app-agnostic, while pairing with suppression to avoid loops.
+///
 /// Inserts the accepted suggestion by synthesizing a single Unicode keyboard event.
 /// This is simpler than AX field mutation for a first slice, but it is also more brittle.
 @MainActor
@@ -13,6 +17,7 @@ final class SuggestionInserter {
         self.suppressionController = suppressionController
     }
 
+    /// Posts a Unicode keydown/keyup pair for the accepted suggestion and reports any insertion failure.
     func insert(_ suggestion: String) -> Bool {
         let normalized = suggestion.replacingOccurrences(of: "\r", with: "")
         guard !normalized.isEmpty else {

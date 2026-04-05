@@ -1,250 +1,64 @@
+import Foundation
 import SwiftUI
 
+/// File overview:
+/// Renders the compact operator-facing menu panel. It surfaces only the highest-signal runtime,
+/// focus, and suggestion status plus conditional prompt/output previews for debugging.
+///
 struct MenuBarView: View {
     @ObservedObject var permissionManager: PermissionManager
     /// `@ObservedObject` listens to an external owner; the model lifetime is not owned by this view.
     @ObservedObject var runtimeModel: RuntimeBootstrapModel
     @ObservedObject var focusModel: FocusTrackingModel
-    @ObservedObject var suggestionModel: SuggestionDebugModel
+    @ObservedObject var suggestionCoordinator: SuggestionCoordinator
 
+    /// Lays out the compact status panel and conditionally reveals debug payload previews.
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: focusModel.menuBarSymbolName)
-                    .foregroundStyle(focusStatusColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Matcha")
-                        .font(.headline)
-                    Text("Input: \(focusModel.menuBarStatusText)")
-                        .font(.subheadline)
-                        .foregroundStyle(focusStatusColor)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            header
+
+            VStack(alignment: .leading, spacing: 6) {
+                PermissionStatusRow(
+                    title: "Accessibility",
+                    granted: permissionManager.accessibilityGranted
+                )
+
+                PermissionStatusRow(
+                    title: "Input Monitoring",
+                    granted: permissionManager.inputMonitoringGranted
+                )
             }
 
-            Divider()
-
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(permissionManager.accessibilityGranted ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
-                Text("Accessibility: \(permissionManager.accessibilityGranted ? "Granted" : "Required")")
-                    .font(.subheadline)
+            if !permissionManager.accessibilityGranted || !permissionManager.inputMonitoringGranted {
+                permissionActions
             }
 
-            if !permissionManager.accessibilityGranted {
-                Button("Open Accessibility Settings →") {
-                    permissionManager.openAccessibilitySettings()
-                }
-                .buttonStyle(.borderedProminent)
+            VStack(alignment: .leading, spacing: 8) {
+                CompactStatusRow(
+                    title: "Runtime",
+                    value: runtimeSummaryText,
+                    tone: runtimeStatusColor
+                )
+
+                CompactStatusRow(
+                    title: "Focus",
+                    value: focusSummaryText,
+                    tone: focusStatusColor
+                )
+
+                CompactStatusRow(
+                    title: "Suggestion",
+                    value: suggestionSummaryText,
+                    tone: suggestionStatusColor
+                )
             }
 
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(permissionManager.inputMonitoringGranted ? Color.green : Color.red)
-                    .frame(width: 8, height: 8)
-                Text("Input Monitoring: \(permissionManager.inputMonitoringGranted ? "Granted" : "Required")")
-                    .font(.subheadline)
+            if let promptPreview {
+                DebugPreviewCard(title: "Prompt", text: promptPreview)
             }
 
-            if !permissionManager.inputMonitoringGranted {
-                Button("Open Input Monitoring Settings →") {
-                    permissionManager.openInputMonitoringSettings()
-                }
-                .buttonStyle(.borderedProminent)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Runtime")
-                    .font(.headline)
-
-                Text(runtimeModel.state.summary)
-                    .font(.subheadline)
-                    .foregroundStyle(runtimeStatusColor)
-
-                if let backendName = runtimeModel.diagnostics.backendName {
-                    Text("Backend: \(backendName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let status = runtimeModel.diagnostics.lastLoadStatus {
-                    Text("Status: \(status)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let contextWindow = runtimeModel.diagnostics.contextWindowTokens {
-                    Text("Context: \(contextWindow) tokens")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let batchSize = runtimeModel.diagnostics.batchSize {
-                    Text("Batch: \(batchSize)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let threadCount = runtimeModel.diagnostics.threadCount {
-                    Text("Threads: \(threadCount)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let lastError = runtimeModel.diagnostics.lastError, !lastError.isEmpty {
-                    Text(lastError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .textSelection(.enabled)
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Focus")
-                    .font(.headline)
-
-                Text(focusModel.snapshot.applicationName)
-                    .font(.subheadline)
-
-                Text(focusModel.snapshot.capabilitySummary)
-                    .font(.caption)
-                    .foregroundStyle(focusStatusColor)
-
-                if let inspection = focusModel.snapshot.inspection {
-                    Text("Focused: \(inspection.focusedRoleSummary)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("Resolved: \(inspection.resolvedRoleSummary)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if !inspection.missingCapabilities.isEmpty {
-                        Text("Missing: \(inspection.missingCapabilitySummary)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if let context = focusModel.snapshot.context {
-                    Text("Selection: \(context.selection.location), \(context.selection.length)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text(context.textPreview)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Suggestion")
-                    .font(.headline)
-
-                Text(suggestionModel.state.shortLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(suggestionStatusColor)
-
-                if let detail = suggestionModel.state.detail {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text("Stage: \(suggestionModel.latestStageMessage)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let generation = suggestionModel.latestGenerationNumber {
-                    Text("Generation: \(generation)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let requestPreview = suggestionModel.latestRequestPreview, !requestPreview.isEmpty {
-                    Text("Request")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text(requestPreview)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(6)
-                }
-
-                if let promptPreview = suggestionModel.latestPromptPreview, !promptPreview.isEmpty {
-                    Text("Prompt")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text(promptPreview)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(8)
-                }
-
-                if let rawOutput = suggestionModel.latestRawModelOutput, !rawOutput.isEmpty {
-                    Text("Raw Output")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text(rawOutput)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                if let preview = suggestionModel.latestSuggestionPreview, !preview.isEmpty {
-                    Text("Accepted Output")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text(preview)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                if let latencyMilliseconds = suggestionModel.latestLatencyMilliseconds {
-                    Text("Latency: \(latencyMilliseconds) ms")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Overlay")
-                    .font(.headline)
-
-                Text(suggestionModel.overlayState.shortLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(overlayStatusColor)
-
-                Text(suggestionModel.latestOverlayMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let visibleText = suggestionModel.overlayState.visibleText, !visibleText.isEmpty {
-                    Text("Visible Text")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text(visibleText)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+            if let outputPreview {
+                DebugPreviewCard(title: outputPreviewTitle, text: outputPreview)
             }
 
             Divider()
@@ -253,9 +67,138 @@ struct MenuBarView: View {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")
+            .controlSize(.small)
         }
         .padding(12)
-        .frame(width: 380)
+        .frame(width: 320)
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: focusModel.menuBarSymbolName)
+                .font(.title3)
+                .foregroundStyle(focusStatusColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Matcha")
+                    .font(.headline)
+
+                Text("Input \(focusModel.menuBarStatusText)")
+                    .font(.subheadline)
+                    .foregroundStyle(focusStatusColor)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var permissionActions: some View {
+        HStack(spacing: 8) {
+            if !permissionManager.accessibilityGranted {
+                Button("Open Accessibility") {
+                    permissionManager.openAccessibilitySettings()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+
+            if !permissionManager.inputMonitoringGranted {
+                Button("Open Input Monitoring") {
+                    permissionManager.openInputMonitoringSettings()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private var promptPreview: String? {
+        guard case .generating = suggestionCoordinator.state,
+              let prompt = suggestionCoordinator.latestPromptPreview,
+              !prompt.isEmpty
+        else {
+            return nil
+        }
+
+        return prompt
+    }
+
+    private var outputPreview: String? {
+        switch suggestionCoordinator.state {
+        case .ready:
+            return suggestionCoordinator.latestSuggestionPreview
+
+        case .failed:
+            return suggestionCoordinator.latestRawModelOutput
+
+        case .idle where suggestionCoordinator.latestStageMessage.localizedCaseInsensitiveContains("empty"):
+            return suggestionCoordinator.latestRawModelOutput ?? suggestionCoordinator.latestSuggestionPreview
+
+        default:
+            return nil
+        }
+    }
+
+    private var outputPreviewTitle: String {
+        switch suggestionCoordinator.state {
+        case .ready:
+            return "Output"
+        default:
+            return "Last Output"
+        }
+    }
+
+    private var runtimeSummaryText: String {
+        let modelName = runtimeModel.diagnostics.modelFilePath.map { URL(fileURLWithPath: $0).lastPathComponent }
+
+        switch runtimeModel.state {
+        case .ready:
+            return [modelName, "Ready"].compactMap { $0 }.joined(separator: " · ")
+
+        case .starting:
+            return "Starting runtime"
+
+        case .loading:
+            return modelName.map { "\($0) · Loading" } ?? "Loading model"
+
+        case .failed(let message):
+            return message
+
+        case .idle:
+            return modelName.map { "\($0) · Idle" } ?? "Idle"
+        }
+    }
+
+    private var focusSummaryText: String {
+        let appName = focusModel.snapshot.applicationName
+
+        switch focusModel.snapshot.capability {
+        case .supported:
+            return "\(appName) · Supported"
+        case let .blocked(reason), let .unsupported(reason):
+            return "\(appName) · \(reason)"
+        }
+    }
+
+    private var suggestionSummaryText: String {
+        switch suggestionCoordinator.state {
+        case .idle:
+            return "No active suggestion"
+
+        case let .disabled(reason), let .failed(reason):
+            return reason
+
+        case .debouncing:
+            return "Waiting for typing to settle"
+
+        case .generating:
+            return "Generating"
+
+        case .ready:
+            return "Ready to accept with Tab"
+        }
     }
 
     private var runtimeStatusColor: Color {
@@ -283,7 +226,7 @@ struct MenuBarView: View {
     }
 
     private var suggestionStatusColor: Color {
-        switch suggestionModel.state {
+        switch suggestionCoordinator.state {
         case .ready:
             return .green
         case .failed:
@@ -296,13 +239,72 @@ struct MenuBarView: View {
             return .secondary
         }
     }
+}
 
-    private var overlayStatusColor: Color {
-        switch suggestionModel.overlayState {
-        case .visible:
-            return .green
-        case .hidden:
-            return .secondary
+private struct PermissionStatusRow: View {
+    let title: String
+    let granted: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(granted ? Color.green : Color.red)
+                .frame(width: 7, height: 7)
+
+            Text("\(title): \(granted ? "Granted" : "Required")")
+                .font(.caption)
+                .foregroundStyle(granted ? Color.primary : Color.red)
+                .lineLimit(1)
         }
+    }
+}
+
+private struct CompactStatusRow: View {
+    let title: String
+    let value: String
+    let tone: Color
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 74, alignment: .leading)
+
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(tone)
+                .lineLimit(2)
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct DebugPreviewCard: View {
+    let title: String
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text(text)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .lineLimit(5)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
     }
 }

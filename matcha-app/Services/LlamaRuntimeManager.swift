@@ -2,6 +2,13 @@ import Combine
 import Foundation
 import LlamaSwift
 
+/// File overview:
+/// Owns the in-process llama.cpp runtime. The private actor handles raw model/context lifecycle
+/// and generation, while the observable manager republishes bootstrap state and diagnostics to the app.
+///
+private let llamaSilencedLogCallback: ggml_log_callback = { _, _, _ in }
+
+/// Immutable runtime metadata captured after a model has been successfully prepared.
 private struct PreparedLlamaRuntime: Sendable {
     let resolvedRuntime: ResolvedLlamaRuntime
     let contextWindowTokens: Int
@@ -15,10 +22,12 @@ private struct PreparedLlamaRuntime: Sendable {
 /// Starting with "one loaded model, fresh context per request" keeps correctness simple before
 /// we add any prefix-cache or context reuse optimizations.
 private actor LlamaRuntimeCore {
+    private static var isNativeLoggingSilenced = false
     private var backendInitialized = false
     private var model: OpaquePointer?
     private var preparedRuntime: PreparedLlamaRuntime?
 
+    /// Loads the requested model once and records the runtime characteristics needed for diagnostics.
     func prepare(
         resolvedRuntime: ResolvedLlamaRuntime,
         configuration: LlamaRuntimeConfiguration
@@ -34,6 +43,10 @@ private actor LlamaRuntimeCore {
         }
 
         if !backendInitialized {
+            if !Self.isNativeLoggingSilenced {
+                llama_log_set(llamaSilencedLogCallback, nil)
+                Self.isNativeLoggingSilenced = true
+            }
             llama_backend_init()
             backendInitialized = true
         }
@@ -63,11 +76,15 @@ private actor LlamaRuntimeCore {
         return preparedRuntime
     }
 
+    /// Creates a fresh inference context, evaluates the prompt, and samples a short completion.
     func generate(
         prompt: String,
         maxPredictionTokens: Int,
         temperature: Double,
-        topP: Double
+        topK: Int,
+        topP: Double,
+        minP: Double,
+        repetitionPenalty: Double
     ) throws -> String {
         guard let preparedRuntime else {
             throw LlamaRuntimeError.unavailable("The llama model is not loaded.")
@@ -92,7 +109,13 @@ private actor LlamaRuntimeCore {
         let promptTokens = try tokenize(prompt, vocab: vocab)
         try decodePrompt(promptTokens, in: context, batchCapacity: preparedRuntime.batchSize)
 
-        let sampler = try makeSampler(temperature: temperature, topP: topP)
+        let sampler = try makeSampler(
+            temperature: temperature, 
+            topK: topK, 
+            topP: topP, 
+            minP: minP, 
+            repetitionPenalty: repetitionPenalty
+        )
         defer { llama_sampler_free(sampler) }
 
         var generatedText = ""
@@ -119,6 +142,7 @@ private actor LlamaRuntimeCore {
         return generatedText
     }
 
+    /// Frees any loaded model/backend state owned by the actor.
     func shutdown() {
         if let model {
             llama_model_free(model)
@@ -133,6 +157,7 @@ private actor LlamaRuntimeCore {
         }
     }
 
+    /// Builds a fresh llama context for one generation request so requests remain isolated.
     private func makeContext(
         model: OpaquePointer,
         contextWindowTokens: Int,
@@ -155,6 +180,7 @@ private actor LlamaRuntimeCore {
         return context
     }
 
+    /// Tokenizes the prompt using the loaded model vocabulary and preserves special tokens.
     private func tokenize(_ prompt: String, vocab: OpaquePointer) throws -> [llama_token] {
         let utf8Count = max(prompt.utf8.count, 1)
         var capacity = utf8Count + 8
@@ -186,6 +212,7 @@ private actor LlamaRuntimeCore {
         }
     }
 
+    /// Feeds the prompt tokens through the context so sampling can begin from the final prompt state.
     private func decodePrompt(
         _ promptTokens: [llama_token],
         in context: OpaquePointer,
@@ -217,6 +244,7 @@ private actor LlamaRuntimeCore {
         }
     }
 
+    /// Advances the context by one sampled token so generation can continue autoregressively.
     private func decodeToken(
         _ token: llama_token,
         position: Int32,
@@ -241,21 +269,24 @@ private actor LlamaRuntimeCore {
         }
     }
 
+    /// Assembles the sampler chain that controls temperature, nucleus sampling, and repetition behavior.
     private func makeSampler(
         temperature: Double,
-        topP: Double
+        topK: Int,
+        topP: Double,
+        minP: Double,
+        repetitionPenalty: Double
     ) throws -> UnsafeMutablePointer<llama_sampler> {
         let params = llama_sampler_chain_default_params()
         guard let sampler = llama_sampler_chain_init(params) else {
             throw LlamaRuntimeError.generationFailed("Unable to initialize the llama sampler chain.")
         }
 
-        if topP > 0 && topP < 1 {
-            guard let topPSampler = llama_sampler_init_top_p(Float(topP), 1) else {
-                throw LlamaRuntimeError.generationFailed("Unable to initialize the top-p sampler.")
+        if repetitionPenalty > 1.0 {
+            guard let penaltySampler = llama_sampler_init_penalties(64, Float(repetitionPenalty), 1.0, 1.0) else {
+                throw LlamaRuntimeError.generationFailed("Unable to initialize the repetition penalty sampler.")
             }
-
-            llama_sampler_chain_add(sampler, topPSampler)
+            llama_sampler_chain_add(sampler, penaltySampler)
         }
 
         if temperature > 0 {
@@ -263,6 +294,27 @@ private actor LlamaRuntimeCore {
                 throw LlamaRuntimeError.generationFailed("Unable to initialize the temperature sampler.")
             }
             llama_sampler_chain_add(sampler, temperatureSampler)
+
+            if topK > 0 {
+                guard let topKSampler = llama_sampler_init_top_k(Int32(topK)) else {
+                    throw LlamaRuntimeError.generationFailed("Unable to initialize the top-k sampler.")
+                }
+                llama_sampler_chain_add(sampler, topKSampler)
+            }
+
+            if minP > 0 && minP < 1 {
+                guard let minPSampler = llama_sampler_init_min_p(Float(minP), 1) else {
+                    throw LlamaRuntimeError.generationFailed("Unable to initialize the min-p sampler.")
+                }
+                llama_sampler_chain_add(sampler, minPSampler)
+            }
+
+            if topP > 0 && topP < 1 {
+                guard let topPSampler = llama_sampler_init_top_p(Float(topP), 1) else {
+                    throw LlamaRuntimeError.generationFailed("Unable to initialize the top-p sampler.")
+                }
+                llama_sampler_chain_add(sampler, topPSampler)
+            }
 
             guard let distributionSampler = llama_sampler_init_dist(UInt32.random(in: UInt32.min ... UInt32.max)) else {
                 throw LlamaRuntimeError.generationFailed("Unable to initialize the distribution sampler.")
@@ -278,6 +330,7 @@ private actor LlamaRuntimeCore {
         return sampler
     }
 
+    /// Converts one sampled token back into its text piece representation.
     private func pieceString(for token: llama_token, vocab: OpaquePointer) -> String {
         var bufferLength = 32
 
@@ -331,15 +384,20 @@ final class LlamaRuntimeManager: ObservableObject {
         core = LlamaRuntimeCore()
     }
 
+    /// Ensures the preferred bundled model is resolved and prepared before any generation requests run.
     func prepare() async throws {
         _ = try await preparedRuntime()
     }
 
+    /// Forwards one generation request into the serialized runtime actor after ensuring preparation.
     func generate(
         prompt: String,
         maxPredictionTokens: Int,
         temperature: Double,
-        topP: Double
+        topK: Int,
+        topP: Double,
+        minP: Double,
+        repetitionPenalty: Double
     ) async throws -> String {
         _ = try await preparedRuntime()
 
@@ -348,7 +406,10 @@ final class LlamaRuntimeManager: ObservableObject {
                 prompt: prompt,
                 maxPredictionTokens: maxPredictionTokens,
                 temperature: temperature,
-                topP: topP
+                topK: topK,
+                topP: topP,
+                minP: minP,
+                repetitionPenalty: repetitionPenalty
             )
         } catch is CancellationError {
             throw LlamaRuntimeError.cancelled
@@ -362,6 +423,7 @@ final class LlamaRuntimeManager: ObservableObject {
         }
     }
 
+    /// Cancels any retained prepared runtime and asks the actor to release backend resources.
     func stop() {
         startupTask?.cancel()
         startupTask = nil
@@ -375,6 +437,7 @@ final class LlamaRuntimeManager: ObservableObject {
         state = .idle
     }
 
+    /// Returns cached runtime metadata when available or performs one full preparation flow otherwise.
     private func preparedRuntime() async throws -> PreparedLlamaRuntime {
         if let cachedRuntime {
             return cachedRuntime
@@ -433,6 +496,7 @@ final class LlamaRuntimeManager: ObservableObject {
         }
     }
 
+    /// Copies prepared runtime metadata into published diagnostics for the menu and startup UI.
     private func apply(_ preparedRuntime: PreparedLlamaRuntime) {
         diagnostics.runtimeDirectoryPath = preparedRuntime.resolvedRuntime.runtimeDirectoryURL.path
         diagnostics.modelFilePath = preparedRuntime.resolvedRuntime.modelFileURL.path
