@@ -2,7 +2,7 @@ import SwiftUI
 
 /// File overview:
 /// Renders the compact first-run welcome screen. The copy is intentionally short: explain what
-/// Matcha does, how acceptance works, and which permissions the app depends on.
+/// Tabby does, how acceptance works, and which permissions the app depends on.
 ///
 /// The view stays presentation-focused. It does not own persistence or window lifecycle; those
 /// behaviors live in `WelcomeCoordinator`.
@@ -48,22 +48,19 @@ struct WelcomeView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.12))
-                    .frame(width: 54, height: 54)
-
-                Image(systemName: "text.cursor")
-                    .font(.system(size: 24, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.white)
-            }
+            Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
+                .resizable()
+                .scaledToFit()
+                .frame(width: 54, height: 54)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Welcome to Matcha")
+                Text("Welcome to Tabby")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.white)
 
-                Text("Local ghost-text completion for macOS apps. Matcha watches the focused field, suggests the next words, and lets you accept them with `Tab` one chunk at a time.")
+                Text("Local ghost-text completion for macOS apps. Tabby watches the focused field, suggests the next words, and lets you accept them with `Tab` one chunk at a time.")
                     .font(.system(size: 13.5, weight: .regular, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.86))
                     .fixedSize(horizontal: false, vertical: true)
@@ -82,12 +79,12 @@ struct WelcomeView: View {
                 WelcomeStepRow(
                     number: "2",
                     title: "Watch for gray ghost text",
-                    detail: "Matcha proposes the next words directly near your caret."
+                    detail: "Tabby proposes the next words directly near your caret."
                 )
                 WelcomeStepRow(
                     number: "3",
                     title: "Press Tab to accept",
-                    detail: "Each press accepts the next chunk. If you type your own text instead, Matcha adapts."
+                    detail: "Each press accepts the next chunk. If you type your own text instead, Tabby adapts."
                 )
             }
         }
@@ -96,7 +93,7 @@ struct WelcomeView: View {
     private var permissionsCard: some View {
         WelcomeCard(title: "Permissions") {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Matcha only needs two macOS permissions to work correctly.")
+                Text("Tabby only needs two macOS permissions to work correctly.")
                     .font(.system(size: 12.5, weight: .regular, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.76))
 

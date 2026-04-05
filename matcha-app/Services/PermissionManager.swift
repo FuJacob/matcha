@@ -4,14 +4,16 @@ import Combine
 import CoreGraphics
 
 /// File overview:
-/// Polls and exposes the two system permissions Matcha depends on: Accessibility for reading
-/// focus state and Input Monitoring for global key capture.
+/// Polls and exposes the three system permissions Matcha depends on: Accessibility for reading
+/// focus state, Input Monitoring for global key capture, and Screen Recording for screenshot-
+/// derived prompt context.
 ///
 /// `@MainActor` guarantees permission state is mutated on the UI thread.
 @MainActor
 final class PermissionManager: ObservableObject {
     @Published private(set) var accessibilityGranted = false
     @Published private(set) var inputMonitoringGranted = false
+    @Published private(set) var screenRecordingGranted = false
 
     private var pollTimer: Timer?
 
@@ -31,6 +33,7 @@ final class PermissionManager: ObservableObject {
     func refresh() {
         accessibilityGranted = AXIsProcessTrusted()
         inputMonitoringGranted = CGPreflightListenEventAccess()
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
     }
 
     /// Opens System Settings directly to the Accessibility pane so the user can grant access.
@@ -44,6 +47,13 @@ final class PermissionManager: ObservableObject {
     func openInputMonitoringSettings() {
         NSWorkspace.shared.open(
             URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
+        )
+    }
+
+    /// Opens System Settings directly to the Screen Recording pane for screenshot context capture.
+    func openScreenRecordingSettings() {
+        NSWorkspace.shared.open(
+            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
         )
     }
 }

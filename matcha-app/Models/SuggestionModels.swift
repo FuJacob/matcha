@@ -43,10 +43,12 @@ struct SuggestionConfiguration: Equatable, Sendable {
 struct FocusedInputContext: Equatable, Sendable {
     let applicationName: String
     let bundleIdentifier: String
+    let processIdentifier: Int32
     let elementIdentifier: String
     let role: String
     let subrole: String?
     let caretRect: CGRect
+    let inputFrameRect: CGRect?
     let precedingText: String
     let trailingText: String
     let selection: NSRange
@@ -56,10 +58,12 @@ struct FocusedInputContext: Equatable, Sendable {
     init(snapshot: FocusedInputSnapshot, generation: UInt64) {
         applicationName = snapshot.applicationName
         bundleIdentifier = snapshot.bundleIdentifier
+        processIdentifier = snapshot.processIdentifier
         elementIdentifier = snapshot.elementIdentifier
         role = snapshot.role
         subrole = snapshot.subrole
         caretRect = snapshot.caretRect
+        inputFrameRect = snapshot.inputFrameRect
         precedingText = snapshot.precedingText
         trailingText = snapshot.trailingText
         selection = snapshot.selection
@@ -83,6 +87,7 @@ struct FocusedInputContext: Equatable, Sendable {
 struct SuggestionRequest: Equatable, Sendable {
     let context: FocusedInputContext
     let prompt: String
+    let injectedContextSummary: String?
     let generation: UInt64
     let maxPredictionTokens: Int
     let temperature: Double

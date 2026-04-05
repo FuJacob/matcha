@@ -6,7 +6,7 @@ import LlamaSwift
 /// Owns the in-process llama.cpp runtime. The private actor handles raw model/context lifecycle
 /// and generation, while the observable manager republishes bootstrap state and diagnostics to the app.
 ///
-private let llamaSilencedLogCallback: ggml_log_callback = { _, _, _ in }
+nonisolated private let llamaSilencedLogCallback: ggml_log_callback = { _, _, _ in }
 
 /// Immutable runtime metadata captured after a model has been successfully prepared.
 private struct PreparedLlamaRuntime: Sendable {

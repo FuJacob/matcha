@@ -97,10 +97,12 @@ struct FocusInspectionSnapshot: Equatable {
 struct FocusedInputSnapshot: Equatable {
     let applicationName: String
     let bundleIdentifier: String
+    let processIdentifier: Int32
     let elementIdentifier: String
     let role: String
     let subrole: String?
     let caretRect: CGRect
+    let inputFrameRect: CGRect?
     let precedingText: String
     let trailingText: String
     let selection: NSRange

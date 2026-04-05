@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let suggestionCoordinator: SuggestionCoordinator
     let welcomeCoordinator: WelcomeCoordinator
 
+    private let activationIndicatorController: ActivationIndicatorController
     private var cancellables = Set<AnyCancellable>()
 
     override init() {
@@ -35,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let runtimeModel = RuntimeBootstrapModel(runtimeManager: runtimeManager)
         let suggestionInserter = SuggestionInserter(suppressionController: suppressionController)
         let overlayController = OverlayController()
+        let activationIndicatorController = ActivationIndicatorController()
+        let screenshotContextGenerator = ScreenshotContextGenerator(runtimeManager: runtimeManager)
         let suggestionCoordinator = SuggestionCoordinator(
             permissionManager: permissionManager,
             focusModel: focusModel,
@@ -42,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             overlayController: overlayController,
             suggestionInserter: suggestionInserter,
             suggestionEngine: LlamaSuggestionEngine(runtimeManager: runtimeManager),
+            screenshotContextGenerator: screenshotContextGenerator,
             contextBuffer: ContextBuffer(),
             configuration: .debugDefaults
         )
@@ -52,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.inputMonitor = inputMonitor
         self.suggestionCoordinator = suggestionCoordinator
         self.welcomeCoordinator = welcomeCoordinator
+        self.activationIndicatorController = activationIndicatorController
         super.init()
 
         runtimeModel.onWillReloadModel = { [weak suggestionCoordinator] in
@@ -61,6 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permissionManager.$inputMonitoringGranted
             .sink { [weak self] _ in
                 self?.inputMonitor.refresh()
+            }
+            .store(in: &cancellables)
+
+        focusModel.$snapshot
+            .sink { [weak self] snapshot in
+                self?.updateActivationIndicator(for: snapshot)
             }
             .store(in: &cancellables)
     }
@@ -76,9 +87,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Stops long-lived services before process exit so observers and runtime resources detach cleanly.
     func applicationWillTerminate(_ notification: Notification) {
+        activationIndicatorController.hide(reason: "Activation indicator hidden because Matcha is terminating.")
         suggestionCoordinator.stop()
         inputMonitor.stop()
         focusModel.stop()
         runtimeModel.stop()
+    }
+
+    /// Mirrors supported-focus state into the small outside-left activation indicator.
+    private func updateActivationIndicator(for snapshot: FocusSnapshot) {
+        guard case .supported = snapshot.capability,
+              let inputFrameRect = snapshot.context?.inputFrameRect
+        else {
+            activationIndicatorController.hide(reason: "Activation indicator hidden because the current field is not supported.")
+            return
+        }
+
+        activationIndicatorController.show(at: inputFrameRect)
     }
 }

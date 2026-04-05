@@ -29,9 +29,18 @@ struct MenuBarView: View {
                     title: "Input Monitoring",
                     granted: permissionManager.inputMonitoringGranted
                 )
+
+                PermissionStatusRow(
+                    title: "Screen Recording",
+                    granted: permissionManager.screenRecordingGranted,
+                    missingLabel: "Optional"
+                )
             }
 
-            if !permissionManager.accessibilityGranted || !permissionManager.inputMonitoringGranted {
+            if !permissionManager.accessibilityGranted
+                || !permissionManager.inputMonitoringGranted
+                || !permissionManager.screenRecordingGranted
+            {
                 permissionActions
             }
 
@@ -69,6 +78,12 @@ struct MenuBarView: View {
                     tone: suggestionStatusColor
                 )
 
+                CompactStatusRow(
+                    title: "Context",
+                    value: visualContextSummaryText,
+                    tone: visualContextStatusColor
+                )
+
                 if let acceptanceSummary {
                     CompactStatusRow(
                         title: "Accept",
@@ -86,6 +101,10 @@ struct MenuBarView: View {
                 DebugPreviewCard(title: "Full Suggestion", text: fullSuggestionPreview)
             }
 
+            if let injectedContextPreview {
+                DebugPreviewCard(title: "Injected Context", text: injectedContextPreview)
+            }
+
             if let outputPreview {
                 DebugPreviewCard(title: outputPreviewTitle, text: outputPreview)
             }
@@ -100,7 +119,7 @@ struct MenuBarView: View {
 
                 Spacer(minLength: 0)
 
-                Button("Quit Matcha") {
+                Button("Quit Tabby") {
                     NSApplication.shared.terminate(nil)
                 }
                 .keyboardShortcut("q")
@@ -118,7 +137,7 @@ struct MenuBarView: View {
                 .foregroundStyle(focusStatusColor)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Matcha")
+                Text("Tabby")
                     .font(.headline)
 
                 Text("Input \(focusModel.menuBarStatusText)")
@@ -133,7 +152,7 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var permissionActions: some View {
-        HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             if !permissionManager.accessibilityGranted {
                 Button("Open Accessibility") {
                     permissionManager.openAccessibilitySettings()
@@ -145,6 +164,14 @@ struct MenuBarView: View {
             if !permissionManager.inputMonitoringGranted {
                 Button("Open Input Monitoring") {
                     permissionManager.openInputMonitoringSettings()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+
+            if !permissionManager.screenRecordingGranted {
+                Button("Open Screen Recording") {
+                    permissionManager.openScreenRecordingSettings()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -202,6 +229,17 @@ struct MenuBarView: View {
         }
 
         return fullSuggestion
+    }
+
+    private var injectedContextPreview: String? {
+        guard suggestionCoordinator.visualContextStatus == .ready,
+              let injectedContextSummary = suggestionCoordinator.latestInjectedContextSummary,
+              !injectedContextSummary.isEmpty
+        else {
+            return nil
+        }
+
+        return injectedContextSummary
     }
 
     private var runtimeSummaryText: String {
@@ -282,6 +320,23 @@ struct MenuBarView: View {
         }
     }
 
+    private var visualContextSummaryText: String {
+        switch suggestionCoordinator.visualContextStatus {
+        case .idle:
+            return "Waiting for a supported input"
+        case .capturing:
+            return "Capturing the frontmost window"
+        case .extractingText:
+            return "Extracting visible text"
+        case .generatingSummary:
+            return "Summarizing screenshot context"
+        case .ready:
+            return suggestionCoordinator.latestInjectedContextSummary ?? "Ready"
+        case let .unavailable(reason), let .failed(reason):
+            return reason
+        }
+    }
+
     private var acceptanceSummary: String? {
         if case .ready = suggestionCoordinator.state {
             return suggestionCoordinator.latestAcceptanceAction
@@ -341,11 +396,33 @@ struct MenuBarView: View {
             return .secondary
         }
     }
+
+    private var visualContextStatusColor: Color {
+        switch suggestionCoordinator.visualContextStatus {
+        case .ready:
+            return .green
+        case .capturing, .extractingText, .generatingSummary:
+            return .blue
+        case .unavailable:
+            return .orange
+        case .failed:
+            return .red
+        case .idle:
+            return .secondary
+        }
+    }
 }
 
 private struct PermissionStatusRow: View {
     let title: String
     let granted: Bool
+    let missingLabel: String
+
+    init(title: String, granted: Bool, missingLabel: String = "Required") {
+        self.title = title
+        self.granted = granted
+        self.missingLabel = missingLabel
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -353,7 +430,7 @@ private struct PermissionStatusRow: View {
                 .fill(granted ? Color.green : Color.red)
                 .frame(width: 7, height: 7)
 
-            Text("\(title): \(granted ? "Granted" : "Required")")
+            Text("\(title): \(granted ? "Granted" : missingLabel)")
                 .font(.caption)
                 .foregroundStyle(granted ? Color.primary : Color.red)
                 .lineLimit(1)

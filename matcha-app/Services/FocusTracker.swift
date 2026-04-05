@@ -13,6 +13,7 @@ private struct AXFocusCandidate {
     let textValue: String?
     let selection: NSRange?
     let caretRect: CGRect?
+    let inputFrameRect: CGRect?
     let isSecure: Bool
     let resolverCandidate: FocusCapabilityCandidate
 }
@@ -203,10 +204,12 @@ final class FocusTracker {
         let context = FocusedInputSnapshot(
             applicationName: applicationName,
             bundleIdentifier: bundleIdentifier,
+            processIdentifier: Int32(application.processIdentifier),
             elementIdentifier: resolvedCandidate.elementIdentifier,
             role: resolvedCandidate.role,
             subrole: resolvedCandidate.subrole,
             caretRect: caretRect,
+            inputFrameRect: resolvedCandidate.inputFrameRect,
             precedingText: nsValue.substring(to: safeSelectionLocation),
             trailingText: nsValue.substring(from: trailingStart),
             selection: selection,
@@ -297,6 +300,9 @@ final class FocusTracker {
         let selection = supportedAttributes.contains(kAXSelectedTextRangeAttribute as String)
             ? AXHelper.rangeValue(for: kAXSelectedTextRangeAttribute as CFString, on: element)
             : nil
+        let inputFrameRect = supportedAttributes.contains("AXFrame")
+            ? resolveInputFrameRect(for: element, bundleIdentifier: bundleIdentifier)
+            : nil
         let caretRect = selection.flatMap {
             resolveCaretRect(
                 for: element,
@@ -329,8 +335,27 @@ final class FocusTracker {
             textValue: textValue,
             selection: selection,
             caretRect: caretRect,
+            inputFrameRect: inputFrameRect,
             isSecure: isSecure,
             resolverCandidate: resolverCandidate
+        )
+    }
+
+    /// Resolves the full input frame that the activation indicator uses as its visual anchor.
+    /// This is intentionally separate from caret resolution because the indicator tracks field
+    /// support, not the exact text insertion point.
+    private func resolveInputFrameRect(
+        for element: AXUIElement,
+        bundleIdentifier: String
+    ) -> CGRect? {
+        guard let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty else {
+            return nil
+        }
+
+        return AXHelper.cocoaRect(
+            fromAccessibilityRect: frame,
+            bundleIdentifier: bundleIdentifier,
+            isTextRect: false
         )
     }
 

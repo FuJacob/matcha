@@ -12,9 +12,9 @@ struct MenuBarStatusLabelView: View {
 
     /// Mirrors the latest focus support state into the menu-bar icon and label.
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: focusModel.menuBarSymbolName)
-            Text(focusModel.menuBarStatusText)
-        }
+        Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
+            .resizable()
+            .scaledToFit()
+            .frame(width: 18, height: 18)
     }
 }

@@ -27,6 +27,8 @@ final class SuggestionCoordinator: ObservableObject {
     @Published private(set) var latestPromptPreview: String?
     @Published private(set) var latestRawModelOutput: String?
     @Published private(set) var latestGenerationNumber: UInt64?
+    @Published private(set) var visualContextStatus: VisualContextStatus = .idle
+    @Published private(set) var latestInjectedContextSummary: String?
 
     private let permissionManager: PermissionManager
     private let focusModel: FocusTrackingModel
@@ -34,15 +36,18 @@ final class SuggestionCoordinator: ObservableObject {
     private let overlayController: OverlayController
     private let suggestionInserter: SuggestionInserter
     private let suggestionEngine: LlamaSuggestionEngine
+    private let screenshotContextGenerator: ScreenshotContextGenerator
     private let contextBuffer: ContextBuffer
     private let configuration: SuggestionConfiguration
 
     private var cancellables = Set<AnyCancellable>()
     private var debounceTask: Task<Void, Never>?
     private var generationTask: Task<Void, Never>?
+    private var visualContextTask: Task<Void, Never>?
     private var latestWorkID: UInt64 = 0
     private var lastLoggedMessage: String?
     private var activeSession: ActiveSuggestionSession?
+    private var activeAugmentationSession: FocusedInputAugmentationSession?
     private let consoleStages: Set<String> = [
         "generating",
         "ready",
@@ -63,6 +68,7 @@ final class SuggestionCoordinator: ObservableObject {
         overlayController: OverlayController,
         suggestionInserter: SuggestionInserter,
         suggestionEngine: LlamaSuggestionEngine,
+        screenshotContextGenerator: ScreenshotContextGenerator,
         contextBuffer: ContextBuffer,
         configuration: SuggestionConfiguration
     ) {
@@ -72,6 +78,7 @@ final class SuggestionCoordinator: ObservableObject {
         self.overlayController = overlayController
         self.suggestionInserter = suggestionInserter
         self.suggestionEngine = suggestionEngine
+        self.screenshotContextGenerator = screenshotContextGenerator
         self.contextBuffer = contextBuffer
         self.configuration = configuration
         overlayState = overlayController.state
@@ -84,6 +91,12 @@ final class SuggestionCoordinator: ObservableObject {
             .store(in: &cancellables)
 
         permissionManager.$inputMonitoringGranted
+            .sink { [weak self] _ in
+                self?.handlePermissionChange()
+            }
+            .store(in: &cancellables)
+
+        permissionManager.$screenRecordingGranted
             .sink { [weak self] _ in
                 self?.handlePermissionChange()
             }
@@ -110,6 +123,7 @@ final class SuggestionCoordinator: ObservableObject {
     /// Cancels any pending work and detaches long-lived callbacks during shutdown.
     func stop() {
         cancelPredictionWork()
+        cancelVisualContextWork(resetState: true)
         hideOverlay(reason: "Overlay hidden because Matcha stopped observing suggestions.")
         inputMonitor.onEvent = nil
         inputMonitor.onSuppressedSyntheticInput = nil
@@ -121,6 +135,7 @@ final class SuggestionCoordinator: ObservableObject {
     func prepareForRuntimeModelSwitch() {
         cancelPredictionWork()
         contextBuffer.clear()
+        cancelVisualContextWork(resetState: true)
         clearSuggestion(clearDiagnostics: true)
         hideOverlay(reason: "Overlay hidden because the runtime model is switching.")
         state = .idle
@@ -128,7 +143,17 @@ final class SuggestionCoordinator: ObservableObject {
     }
 
     private func handlePermissionChange() {
+        if !permissionManager.screenRecordingGranted {
+            cancelVisualContextWork(resetState: true)
+        }
+
         reconcileWithCurrentEnvironment()
+
+        if permissionManager.inputMonitoringGranted,
+           case .supported = focusModel.snapshot.capability
+        {
+            handleSupportedSnapshot(focusModel.snapshot)
+        }
     }
 
     private func handleFocusSnapshotChange(_ snapshot: FocusSnapshot) {
@@ -151,6 +176,8 @@ final class SuggestionCoordinator: ObservableObject {
             disablePredictions(reason: "No focused text input.")
             return
         }
+
+        startVisualContextSessionIfNeeded(for: focusedContext)
 
         if case .disabled = state {
             state = .idle
@@ -316,8 +343,9 @@ final class SuggestionCoordinator: ObservableObject {
         }
 
         let context = contextBuffer.materialize(from: rawContext)
-        let prompt = buildPrompt(from: context)
-        let requestPreview = buildRequestPreview()
+        let injectedContextSummary = injectedContextSummary(for: context)
+        let prompt = buildPrompt(from: context, injectedContextSummary: injectedContextSummary)
+        let requestPreview = buildRequestPreview(hasInjectedContext: injectedContextSummary != nil)
         latestGenerationNumber = context.generation
         latestRequestPreview = requestPreview
         latestPromptPreview = prompt
@@ -325,6 +353,7 @@ final class SuggestionCoordinator: ObservableObject {
         let request = SuggestionRequest(
             context: context,
             prompt: prompt,
+            injectedContextSummary: injectedContextSummary,
             generation: context.generation,
             maxPredictionTokens: configuration.maxPredictionTokens,
             temperature: configuration.temperature,
@@ -550,6 +579,7 @@ final class SuggestionCoordinator: ObservableObject {
     /// Fully disables prediction, clears cached context, and updates UI messaging with the cause.
     private func disablePredictions(reason: String) {
         cancelPredictionWork()
+        cancelVisualContextWork(resetState: true)
         contextBuffer.clear()
         clearSuggestion(clearDiagnostics: true)
         hideOverlay(reason: reason)
@@ -585,12 +615,176 @@ final class SuggestionCoordinator: ObservableObject {
         latestWorkID &+= 1
     }
 
-    /// Builds the prompt contract that the local model sees for the current focused field.
-    private func buildPrompt(from context: FocusedInputContext) -> String {
-        let prefix = String(context.precedingText.suffix(configuration.maxPrefixCharacters))
+    /// Starts one screenshot-derived augmentation session per focused field.
+    /// We intentionally scope this to field identity rather than text generation number because
+    /// the screenshot context should survive normal typing inside the same input.
+    private func startVisualContextSessionIfNeeded(for snapshotContext: FocusedInputSnapshot) {
+        if let activeAugmentationSession,
+           activeAugmentationSession.elementIdentifier == snapshotContext.elementIdentifier
+        {
+            if case .unavailable(let reason) = activeAugmentationSession.status,
+               reason.localizedCaseInsensitiveContains("Screen Recording"),
+               permissionManager.screenRecordingGranted
+            {
+                cancelVisualContextWork(resetState: true)
+            } else {
+                return
+            }
+        }
 
-        // Simply prefix the instructions exactly like the working curl command 
-        return "\(configuration.customAIInstructions)\n\n\(prefix)"
+        cancelVisualContextWork(resetState: false)
+
+        let initialStatus: VisualContextStatus = permissionManager.screenRecordingGranted
+            ? .capturing
+            : .unavailable("Screen Recording permission is required for screenshot-derived prompt context.")
+        let session = FocusedInputAugmentationSession(
+            sessionID: UUID(),
+            elementIdentifier: snapshotContext.elementIdentifier,
+            contentSignatureAtStart: snapshotContext.contentSignature,
+            status: initialStatus,
+            injectedContext: nil
+        )
+
+        activeAugmentationSession = session
+        visualContextStatus = initialStatus
+        latestInjectedContextSummary = nil
+
+        guard permissionManager.screenRecordingGranted else {
+            return
+        }
+
+        visualContextTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let injectedContext = try await screenshotContextGenerator.generateContext(
+                    for: snapshotContext,
+                    onStatusChange: { [weak self] status in
+                        await self?.setVisualContextStatus(status, for: session.sessionID)
+                    }
+                )
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                await applyInjectedVisualContext(
+                    injectedContext,
+                    for: session.sessionID,
+                    elementIdentifier: snapshotContext.elementIdentifier
+                )
+            } catch is CancellationError {
+                return
+            } catch let error as ScreenshotContextGenerationError {
+                await setVisualContextStatus(
+                    errorStatus(for: error),
+                    for: session.sessionID
+                )
+            } catch {
+                await setVisualContextStatus(
+                    .failed(error.localizedDescription),
+                    for: session.sessionID
+                )
+            }
+        }
+    }
+
+    /// Updates only the current augmentation session so stale async screenshot work cannot mutate
+    /// the next field after focus changes.
+    private func setVisualContextStatus(_ status: VisualContextStatus, for sessionID: UUID) {
+        guard activeAugmentationSession?.sessionID == sessionID else {
+            return
+        }
+
+        activeAugmentationSession?.status = status
+        visualContextStatus = status
+    }
+
+    /// Commits the generated screenshot summary and optionally refreshes suggestions for the
+    /// still-focused field so subsequent predictions pick up the new injected context.
+    private func applyInjectedVisualContext(
+        _ injectedContext: InjectedVisualContext,
+        for sessionID: UUID,
+        elementIdentifier: String
+    ) {
+        guard activeAugmentationSession?.sessionID == sessionID,
+              activeAugmentationSession?.elementIdentifier == elementIdentifier
+        else {
+            return
+        }
+
+        activeAugmentationSession?.status = .ready
+        activeAugmentationSession?.injectedContext = injectedContext
+        visualContextStatus = .ready
+        latestInjectedContextSummary = injectedContext.summary
+
+        schedulePredictionForCurrentFocusIfPossible(matching: elementIdentifier)
+    }
+
+    /// Once screenshot context becomes ready, regenerate only if the user is still in the same
+    /// field and there is enough typed text for a real inline completion request.
+    private func schedulePredictionForCurrentFocusIfPossible(matching elementIdentifier: String) {
+        focusModel.refreshNow()
+        let snapshot = focusModel.snapshot
+
+        guard case .supported = snapshot.capability,
+              let context = snapshot.context,
+              context.elementIdentifier == elementIdentifier,
+              !context.precedingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return
+        }
+
+        schedulePrediction()
+    }
+
+    /// Clears screenshot-derived context state and cancels any in-flight capture/OCR/summary work.
+    private func cancelVisualContextWork(resetState: Bool) {
+        visualContextTask?.cancel()
+        visualContextTask = nil
+        activeAugmentationSession = nil
+        latestInjectedContextSummary = nil
+
+        if resetState {
+            visualContextStatus = .idle
+        }
+    }
+
+    private func injectedContextSummary(for context: FocusedInputContext) -> String? {
+        guard let activeAugmentationSession,
+              activeAugmentationSession.elementIdentifier == context.elementIdentifier,
+              activeAugmentationSession.status == .ready
+        else {
+            return nil
+        }
+
+        return activeAugmentationSession.injectedContext?.summary
+    }
+
+    private func errorStatus(for error: ScreenshotContextGenerationError) -> VisualContextStatus {
+        switch error {
+        case let .unavailable(message):
+            return .unavailable(message)
+        case let .failed(message):
+            return .failed(message)
+        }
+    }
+
+    /// Builds the prompt contract that the local model sees for the current focused field.
+    private func buildPrompt(
+        from context: FocusedInputContext,
+        injectedContextSummary: String?
+    ) -> String {
+        let prefix = String(context.precedingText.suffix(configuration.maxPrefixCharacters))
+        var sections = [configuration.customAIInstructions]
+
+        if let injectedContextSummary, !injectedContextSummary.isEmpty {
+            sections.append("Relevant screen context: \(injectedContextSummary)")
+        }
+
+        sections.append(prefix)
+        return sections.joined(separator: "\n\n")
     }
     
     
@@ -600,7 +794,7 @@ final class SuggestionCoordinator: ObservableObject {
     }
 
     /// Produces a compact operator-facing summary of the current generation configuration.
-    private func buildRequestPreview() -> String {
+    private func buildRequestPreview(hasInjectedContext: Bool) -> String {
         """
         Backend: llama.swift
         transport: in-process
@@ -611,6 +805,7 @@ final class SuggestionCoordinator: ObservableObject {
         min_p: \(configuration.minP)
         repetition_penalty: \(configuration.repetitionPenalty)
         prompt_style: raw prefix completion
+        screenshot_context: \(hasInjectedContext ? "ready" : visualContextStatus.shortLabel.lowercased())
         stop: first line only
         """
     }
