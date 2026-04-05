@@ -467,28 +467,10 @@ final class SuggestionDebugModel: ObservableObject {
     }
 
     private func buildPrompt(from context: FocusedInputContext) -> String {
-        let prefix = String(context.precedingText.suffix(configuration.maxPrefixCharacters))
-        let suffix = String(context.trailingText.prefix(configuration.maxSuffixCharacters))
-
-        // Small local models follow a direct task description better than a raw prefix dump.
-        // We still ask for plain continuation text, but we make the contract explicit.
-        return """
-        Your only job is to predict the exact next characters or words that seamlessly continue the user's text.
-
-        CRITICAL RULES:
-        1. Output ONLY the raw continuation text.
-        2. Do not explain anything.
-        3. Do not add quotes, labels, or markdown.
-        4. Keep the continuation short and natural.
-
-        Text before the cursor:
-        \(prefix)
-
-        Text after the cursor:
-        \(suffix)
-
-        Continuation: 
-        """
+        // The /completion endpoint is raw text continuation — not chat, not instruction following.
+        // Sending only the preceding text lets the model continue naturally from where the user left off.
+        // Any instruction preamble causes the model to continue the instruction document instead.
+        "\(String(context.precedingText.suffix(configuration.maxPrefixCharacters)))\n"
     }
 
     private func nextWorkID() -> UInt64 {
@@ -499,11 +481,12 @@ final class SuggestionDebugModel: ObservableObject {
     private func buildRequestPreview() -> String {
         """
         POST /completion
+        id_slot: 0
+        cache_prompt: true
         n_predict: \(configuration.maxPredictionTokens)
         temperature: \(configuration.temperature)
         top_p: \(configuration.topP)
-        stop: ["\\n"]
-        cache: disabled
+        stop: []
         """
     }
 

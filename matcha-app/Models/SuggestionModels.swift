@@ -8,18 +8,19 @@ struct SuggestionConfiguration: Equatable {
     let temperature: Double
     let topP: Double
     let maxPrefixCharacters: Int
-    let maxSuffixCharacters: Int
 
     static let debugDefaults = SuggestionConfiguration(
-        // Short completions are dramatically cheaper than long ones and feel better for inline UX.
-        maxPredictionTokens: 12,
-        // A tiny debounce still gives the host app time to update AX text state after a key press.
-        debounceMilliseconds: 40,
-        temperature: 0.15,
-        topP: 0.75,
+        // The old working prototype produced noticeably better inline completions with a slightly
+        // longer budget. 24 tokens is still short, but it gives the model enough room to finish
+        // a clause instead of clipping itself after a few words.
+        maxPredictionTokens: 24,
+        // Very small debounces feel fast, but many host apps do not update their AX text state
+        // within a single frame. A more conservative delay improves prompt freshness.
+        debounceMilliseconds: 180,
+        temperature: 0.2,
+        topP: 0.9,
         // Prompt windows should stay small. Sending an entire Xcode buffer kills latency for no gain.
-        maxPrefixCharacters: 192,
-        maxSuffixCharacters: 48
+        maxPrefixCharacters: 192
     )
 }
 

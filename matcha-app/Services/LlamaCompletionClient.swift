@@ -2,6 +2,8 @@ import Foundation
 
 private struct CompletionRequestBody: Encodable {
     let prompt: String
+    let idSlot: Int
+    let cachePrompt: Bool
     let stream: Bool
     let nPredict: Int
     let temperature: Double
@@ -10,6 +12,8 @@ private struct CompletionRequestBody: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case prompt
+        case idSlot = "id_slot"
+        case cachePrompt = "cache_prompt"
         case stream
         case nPredict = "n_predict"
         case temperature
@@ -71,11 +75,17 @@ final class LlamaCompletionClient {
     private func fetchCompletion(baseURL: URL, request: SuggestionRequest) async throws -> String {
         let body = CompletionRequestBody(
             prompt: request.prompt,
+            // llama.cpp slots let the server keep prompt state for one logical conversation.
+            // Using a single fixed slot matches our "one field at a time" MVP architecture.
+            idSlot: 0,
+            cachePrompt: true,
             stream: false,
             nPredict: request.maxPredictionTokens,
             temperature: request.temperature,
             topP: request.topP,
-            stop: ["\n"]
+            // Stopping on the first newline was truncating many otherwise useful continuations.
+            // We let normalization decide how much of the first line to keep instead.
+            stop: []
         )
 
         let encoder = JSONEncoder()
@@ -121,20 +131,24 @@ final class LlamaCompletionClient {
             normalized = String(firstLine)
         }
 
-        normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
+        // We deliberately do not trim normal spaces here. Inline completions often need to
+        // preserve a leading space so the inserted text joins the existing word boundary cleanly.
+        normalized = normalized.trimmingCharacters(in: .controlCharacters.union(.newlines))
+
+        // If the suggestion starts with text that already exists after the caret, showing it as
+        // ghost text is misleading because accepting it would duplicate visible content.
+        if normalized.hasPrefix(request.context.trailingText), !request.context.trailingText.isEmpty {
+            return ""
+        }
+
+        // Do NOT inject a leading space here. With a raw-text prompt, the model naturally outputs
+        // a leading space when at a word boundary ("hello world" → " next") and no space when
+        // mid-word ("hello wor" → "ld"). Injecting a space here breaks mid-word completion.
 
         if normalized.count > 120 {
             normalized = String(normalized.prefix(120))
         }
 
-        if normalized.isEmpty {
-            return ""
-        }
-
-        if !request.context.trailingText.isEmpty, normalized == request.context.trailingText {
-            return ""
-        }
-
-        return normalized
+        return normalized.trimmingCharacters(in: .newlines)
     }
 }
