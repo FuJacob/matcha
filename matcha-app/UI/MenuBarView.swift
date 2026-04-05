@@ -208,6 +208,32 @@ struct MenuBarView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Overlay")
+                    .font(.headline)
+
+                Text(suggestionModel.overlayState.shortLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(overlayStatusColor)
+
+                Text(suggestionModel.latestOverlayMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let visibleText = suggestionModel.overlayState.visibleText, !visibleText.isEmpty {
+                    Text("Visible Text")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(visibleText)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Divider()
+
             Button("Quit Matcha") {
                 NSApplication.shared.terminate(nil)
             }
@@ -252,6 +278,15 @@ struct MenuBarView: View {
         case .generating:
             return .blue
         case .idle:
+            return .secondary
+        }
+    }
+
+    private var overlayStatusColor: Color {
+        switch suggestionModel.overlayState {
+        case .visible:
+            return .green
+        case .hidden:
             return .secondary
         }
     }

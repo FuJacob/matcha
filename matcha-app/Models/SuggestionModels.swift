@@ -117,8 +117,49 @@ enum SuggestionDebugState: Equatable {
         case .generating:
             return "Requesting a completion from the local runtime."
         case .ready:
-            return "Ready means Matcha has buffered a non-empty normalized completion for this field."
+            return "Ready means Matcha has buffered a non-empty normalized completion for this field and can render it as ghost text."
         }
+    }
+}
+
+/// The overlay is intentionally modeled as data so diagnostics can reason about visibility
+/// without poking into AppKit window objects directly.
+enum OverlayState: Equatable {
+    case hidden(reason: String)
+    case visible(text: String, caretRect: CGRect)
+
+    var shortLabel: String {
+        switch self {
+        case .hidden:
+            return "Hidden"
+        case .visible:
+            return "Visible"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case let .hidden(reason):
+            return reason
+        case let .visible(text, caretRect):
+            return "Showing \(text.count) characters near (\(Int(caretRect.minX)), \(Int(caretRect.minY)))."
+        }
+    }
+
+    var isVisible: Bool {
+        if case .visible = self {
+            return true
+        }
+
+        return false
+    }
+
+    var visibleText: String? {
+        guard case let .visible(text, _) = self else {
+            return nil
+        }
+
+        return text
     }
 }
 

@@ -1,14 +1,19 @@
 import Combine
+import CoreGraphics
 import Foundation
 
-/// Owns debounce, generation, and stale-result rejection for the debug prediction slice.
+/// Owns debounce, generation, stale-result rejection, and the ghost-text overlay lifecycle.
+/// The important architectural choice is that overlay visibility is derived from the same
+/// canonical ready suggestion state that powers `Tab` acceptance.
 @MainActor
 final class SuggestionDebugModel: ObservableObject {
     @Published private(set) var state: SuggestionDebugState = .idle
+    @Published private(set) var overlayState: OverlayState = .hidden(reason: "Overlay idle.")
     @Published private(set) var latestSuggestionPreview: String?
     @Published private(set) var latestError: String?
     @Published private(set) var latestLatencyMilliseconds: Int?
     @Published private(set) var latestStageMessage = "Idle"
+    @Published private(set) var latestOverlayMessage = "Overlay idle."
     @Published private(set) var latestRequestPreview: String?
     @Published private(set) var latestPromptPreview: String?
     @Published private(set) var latestRawModelOutput: String?
@@ -17,6 +22,7 @@ final class SuggestionDebugModel: ObservableObject {
     private let permissionManager: PermissionManager
     private let focusModel: FocusTrackingModel
     private let inputMonitor: InputMonitor
+    private let overlayController: OverlayController
     private let suggestionInserter: SuggestionInserter
     private let completionClient: LlamaCompletionClient
     private let contextBuffer: ContextBuffer
@@ -34,6 +40,7 @@ final class SuggestionDebugModel: ObservableObject {
         permissionManager: PermissionManager,
         focusModel: FocusTrackingModel,
         inputMonitor: InputMonitor,
+        overlayController: OverlayController,
         suggestionInserter: SuggestionInserter,
         completionClient: LlamaCompletionClient,
         contextBuffer: ContextBuffer,
@@ -42,10 +49,13 @@ final class SuggestionDebugModel: ObservableObject {
         self.permissionManager = permissionManager
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
+        self.overlayController = overlayController
         self.suggestionInserter = suggestionInserter
         self.completionClient = completionClient
         self.contextBuffer = contextBuffer
         self.configuration = configuration
+        overlayState = overlayController.state
+        latestOverlayMessage = overlayController.state.detail
 
         focusModel.$snapshot
             .sink { [weak self] snapshot in
@@ -66,6 +76,10 @@ final class SuggestionDebugModel: ObservableObject {
         inputMonitor.onSuppressedSyntheticInput = { [weak self] in
             self?.handleSuppressedSyntheticInput()
         }
+
+        overlayController.onStateChange = { [weak self] state in
+            self?.overlayState = state
+        }
     }
 
     func start() {
@@ -74,8 +88,10 @@ final class SuggestionDebugModel: ObservableObject {
 
     func stop() {
         cancelPredictionWork()
+        hideOverlay(reason: "Overlay hidden because Matcha stopped observing suggestions.")
         inputMonitor.onEvent = nil
         inputMonitor.onSuppressedSyntheticInput = nil
+        overlayController.onStateChange = nil
     }
 
     private func handlePermissionChange() {
@@ -90,19 +106,32 @@ final class SuggestionDebugModel: ObservableObject {
 
         switch snapshot.capability {
         case .supported:
-            if let currentContext = contextBuffer.currentContext,
-               let focusedContext = snapshot.context,
-               currentContext.elementIdentifier != focusedContext.elementIdentifier {
-                clearSuggestion(clearDiagnostics: true)
-                state = .idle
-            } else if case .disabled = state {
-                latestError = nil
-                state = .idle
-            }
+            handleSupportedSnapshot(snapshot)
 
         case let .blocked(reason), let .unsupported(reason):
             disablePredictions(reason: reason)
         }
+    }
+
+    private func handleSupportedSnapshot(_ snapshot: FocusSnapshot) {
+        guard let focusedContext = snapshot.context else {
+            disablePredictions(reason: "No focused text input.")
+            return
+        }
+
+        if let currentContext = contextBuffer.currentContext,
+           currentContext.elementIdentifier != focusedContext.elementIdentifier {
+            cancelPredictionWork()
+            clearSuggestion(clearDiagnostics: true)
+            hideOverlay(reason: "Overlay hidden because the focused field changed.")
+            latestError = nil
+            state = .idle
+        } else if case .disabled = state {
+            latestError = nil
+            state = .idle
+        }
+
+        reconcileReadySuggestion(with: snapshot)
     }
 
     private func handleInputEvent(_ event: CapturedInputEvent) -> Bool {
@@ -118,6 +147,7 @@ final class SuggestionDebugModel: ObservableObject {
         if event.shouldClearSuggestion {
             cancelPredictionWork()
             clearSuggestion(clearDiagnostics: true)
+            hideOverlay(reason: overlayHideReason(for: event))
             if !event.shouldSchedulePrediction {
                 state = .idle
             }
@@ -194,6 +224,7 @@ final class SuggestionDebugModel: ObservableObject {
 
         guard !rawContext.precedingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             clearSuggestion()
+            hideOverlay(reason: "Overlay hidden because there is no text before the caret.")
             state = .idle
             return
         }
@@ -281,6 +312,7 @@ final class SuggestionDebugModel: ObservableObject {
                 rawOutput: result.rawText,
                 normalizedOutput: result.text
             )
+            hideOverlay(reason: "Overlay hidden because a stale result was dropped.")
             return
         }
 
@@ -288,6 +320,7 @@ final class SuggestionDebugModel: ObservableObject {
 
         guard !result.text.isEmpty else {
             clearSuggestion()
+            hideOverlay(reason: "Overlay hidden because the model returned an empty continuation.")
             state = .idle
             logStage(
                 "empty-result",
@@ -300,12 +333,28 @@ final class SuggestionDebugModel: ObservableObject {
             return
         }
 
+        guard liveContext.selection.length == 0 else {
+            clearSuggestion(clearDiagnostics: true)
+            hideOverlay(reason: "Overlay hidden because text is selected.")
+            state = .idle
+            logStage(
+                "selected-text",
+                workID: workID,
+                generation: result.generation,
+                message: "Ignored the suggestion because the current field has selected text.",
+                rawOutput: result.rawText,
+                normalizedOutput: result.text
+            )
+            return
+        }
+
         latestSuggestionPreview = result.text
         latestLatencyMilliseconds = Int(result.latency * 1000)
         latestError = nil
         readyContext = liveContext
         readyResult = result
         state = .ready(text: result.text, latency: result.latency)
+        presentOverlay(text: result.text, at: liveContext.caretRect)
         logStage(
             "ready",
             workID: workID,
@@ -322,6 +371,7 @@ final class SuggestionDebugModel: ObservableObject {
         }
 
         clearSuggestion()
+        hideOverlay(reason: "Overlay hidden because generation failed.")
         latestError = message
         state = .failed(message)
         logStage("failed", workID: workID, generation: latestGenerationNumber, message: message)
@@ -339,15 +389,64 @@ final class SuggestionDebugModel: ObservableObject {
                 latestError = nil
                 state = .idle
             }
+
         case let .blocked(reason), let .unsupported(reason):
             disablePredictions(reason: reason)
         }
+    }
+
+    private func reconcileReadySuggestion(with snapshot: FocusSnapshot) {
+        guard case .ready = state, let readyContext, let readyResult else {
+            if overlayState.isVisible {
+                hideOverlay(reason: "Overlay hidden because no ready suggestion remains.")
+            }
+            return
+        }
+
+        guard case .supported = snapshot.capability, let rawContext = snapshot.context else {
+            invalidateReadySuggestion(reason: snapshot.capability.summary)
+            return
+        }
+
+        let liveContext = contextBuffer.materialize(from: rawContext)
+
+        guard liveContext.elementIdentifier == readyContext.elementIdentifier else {
+            invalidateReadySuggestion(reason: "Overlay hidden because the focused field changed.")
+            return
+        }
+
+        guard liveContext.contentSignature == readyContext.contentSignature else {
+            invalidateReadySuggestion(reason: "Overlay hidden because the text or caret moved.")
+            return
+        }
+
+        guard liveContext.generation == readyResult.generation else {
+            invalidateReadySuggestion(reason: "Overlay hidden because the ready suggestion became stale.")
+            return
+        }
+
+        guard liveContext.selection.length == 0 else {
+            invalidateReadySuggestion(reason: "Overlay hidden because text is selected.")
+            return
+        }
+
+        self.readyContext = liveContext
+        presentOverlay(text: readyResult.text, at: liveContext.caretRect)
+    }
+
+    private func invalidateReadySuggestion(reason: String) {
+        cancelPredictionWork()
+        clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: reason)
+        latestError = nil
+        state = .idle
     }
 
     private func disablePredictions(reason: String) {
         cancelPredictionWork()
         contextBuffer.clear()
         clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: reason)
         latestError = reason
         state = .disabled(reason)
         latestStageMessage = "Disabled: \(reason)"
@@ -376,7 +475,7 @@ final class SuggestionDebugModel: ObservableObject {
     }
 
     private func buildPrompt(from context: FocusedInputContext) -> String {
-        // For the plain `/completion` rollback we only send text before the caret.
+        // For the plain `/completion` slice we only send text before the caret.
         // That keeps the payload minimal and matches the simpler baseline behavior.
         String(context.precedingText.suffix(configuration.maxPrefixCharacters))
     }
@@ -413,6 +512,10 @@ final class SuggestionDebugModel: ObservableObject {
             return passTabThrough(reason: "Tab passed through because text is currently selected.")
         }
 
+        guard overlayMatchesReadySuggestion(text: readyResult.text) else {
+            return passTabThrough(reason: "Tab passed through because no visible ghost text matched the ready suggestion.")
+        }
+
         let liveContext = contextBuffer.materialize(from: rawContext)
         guard liveContext.elementIdentifier == readyContext.elementIdentifier else {
             return passTabThrough(reason: "Tab passed through because the focused field changed.")
@@ -427,6 +530,7 @@ final class SuggestionDebugModel: ObservableObject {
             latestError = message
             cancelPredictionWork()
             clearSuggestion(clearDiagnostics: true)
+            hideOverlay(reason: "Overlay hidden because suggestion insertion failed.")
             state = .idle
             logStage(
                 "insert-failed",
@@ -441,6 +545,7 @@ final class SuggestionDebugModel: ObservableObject {
         latestError = nil
         cancelPredictionWork()
         clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: "Overlay hidden because Tab accepted the current suggestion.")
         focusModel.refreshNow()
         state = .idle
         logStage(
@@ -457,6 +562,7 @@ final class SuggestionDebugModel: ObservableObject {
         let generation = latestGenerationNumber
         cancelPredictionWork()
         clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: reason)
         latestError = nil
         state = .idle
         logStage(
@@ -466,6 +572,70 @@ final class SuggestionDebugModel: ObservableObject {
             message: reason
         )
         return false
+    }
+
+    private func overlayHideReason(for event: CapturedInputEvent) -> String {
+        switch event.kind {
+        case .textMutation, .shortcutMutation:
+            return "Overlay hidden because typing invalidated the current suggestion."
+        case .navigation:
+            return "Overlay hidden because caret navigation invalidated the current suggestion."
+        case .dismissal:
+            return "Overlay hidden because a dismissal key was pressed."
+        case .tab, .other:
+            return "Overlay hidden."
+        }
+    }
+
+    private func overlayMatchesReadySuggestion(text: String) -> Bool {
+        guard case let .visible(visibleText, _) = overlayState else {
+            return false
+        }
+
+        return visibleText == text
+    }
+
+    private func presentOverlay(text: String, at caretRect: CGRect) {
+        guard !text.isEmpty else {
+            hideOverlay(reason: "Overlay hidden because the suggestion text was empty.")
+            return
+        }
+
+        let previousState = overlayState
+        guard previousState != .visible(text: text, caretRect: caretRect) else {
+            return
+        }
+
+        overlayController.showSuggestion(text, at: caretRect)
+
+        switch previousState {
+        case let .visible(previousText, previousCaretRect) where previousText == text && previousCaretRect != caretRect:
+            let message = "Moved ghost text to the latest caret position."
+            latestOverlayMessage = message
+            logOverlay("overlay-moved", message: message, text: text, caretRect: caretRect)
+
+        default:
+            let message = "Displayed ghost text near the caret."
+            latestOverlayMessage = message
+            logOverlay("overlay-shown", message: message, text: text, caretRect: caretRect)
+        }
+    }
+
+    private func hideOverlay(reason: String) {
+        let previousState = overlayState
+        overlayController.hide(reason: reason)
+        latestOverlayMessage = reason
+
+        switch previousState {
+        case .visible:
+            logOverlay("overlay-hidden", message: reason)
+
+        case let .hidden(previousReason) where previousReason != reason:
+            logOverlay("overlay-hidden", message: reason)
+
+        default:
+            break
+        }
     }
 
     private func logStage(
@@ -503,7 +673,30 @@ final class SuggestionDebugModel: ObservableObject {
             parts.append("normalized=\(makeDebugPreview(normalizedOutput))")
         }
 
-        let line = parts.joined(separator: " ")
+        logLine(parts.joined(separator: " "))
+    }
+
+    private func logOverlay(_ stage: String, message: String, text: String? = nil, caretRect: CGRect? = nil) {
+        var parts = [
+            "[Overlay]",
+            "stage=\(stage)",
+            "message=\(message)"
+        ]
+
+        if let text {
+            parts.append("text=\(makeDebugPreview(text))")
+        }
+
+        if let caretRect {
+            parts.append(
+                "rect=(\(Int(caretRect.minX)),\(Int(caretRect.minY)),\(Int(caretRect.width)),\(Int(caretRect.height)))"
+            )
+        }
+
+        logLine(parts.joined(separator: " "))
+    }
+
+    private func logLine(_ line: String) {
         guard line != lastLoggedMessage else {
             return
         }
@@ -518,10 +711,11 @@ final class SuggestionDebugModel: ObservableObject {
         }
 
         let escaped = text.debugDescription
-        if escaped.count > 240 {
-            return String(escaped.prefix(240)) + "..."
+        if escaped.count <= 160 {
+            return escaped
         }
 
-        return escaped
+        let index = escaped.index(escaped.startIndex, offsetBy: 160)
+        return "\(escaped[..<index])..."
     }
 }

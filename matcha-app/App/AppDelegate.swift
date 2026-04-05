@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let focusModel: FocusTrackingModel
     let inputMonitor: InputMonitor
     let suggestionModel: SuggestionDebugModel
+    let overlayController: OverlayController
     private let suppressionController: InputSuppressionController
     private let suggestionInserter: SuggestionInserter
 
@@ -30,10 +31,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let runtimeModel = RuntimeBootstrapModel(serverManager: serverManager)
         let suggestionInserter = SuggestionInserter(suppressionController: suppressionController)
+        let overlayController = OverlayController()
         let suggestionModel = SuggestionDebugModel(
             permissionManager: permissionManager,
             focusModel: focusModel,
             inputMonitor: inputMonitor,
+            overlayController: overlayController,
             suggestionInserter: suggestionInserter,
             completionClient: LlamaCompletionClient(serverManager: serverManager),
             contextBuffer: ContextBuffer(),
@@ -46,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
         self.suggestionModel = suggestionModel
+        self.overlayController = overlayController
         self.suppressionController = suppressionController
         self.suggestionInserter = suggestionInserter
         super.init()
