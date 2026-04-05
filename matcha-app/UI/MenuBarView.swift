@@ -51,10 +51,22 @@ struct MenuBarView: View {
                     value: suggestionSummaryText,
                     tone: suggestionStatusColor
                 )
+
+                if let acceptanceSummary {
+                    CompactStatusRow(
+                        title: "Accept",
+                        value: acceptanceSummary,
+                        tone: .secondary
+                    )
+                }
             }
 
             if let promptPreview {
                 DebugPreviewCard(title: "Prompt", text: promptPreview)
+            }
+
+            if let fullSuggestionPreview {
+                DebugPreviewCard(title: "Full Suggestion", text: fullSuggestionPreview)
             }
 
             if let outputPreview {
@@ -128,7 +140,7 @@ struct MenuBarView: View {
     private var outputPreview: String? {
         switch suggestionCoordinator.state {
         case .ready:
-            return suggestionCoordinator.latestSuggestionPreview
+            return suggestionCoordinator.latestRemainingSuggestionPreview ?? suggestionCoordinator.latestSuggestionPreview
 
         case .failed:
             return suggestionCoordinator.latestRawModelOutput
@@ -144,10 +156,26 @@ struct MenuBarView: View {
     private var outputPreviewTitle: String {
         switch suggestionCoordinator.state {
         case .ready:
-            return "Output"
+            return "Remaining Tail"
         default:
             return "Last Output"
         }
+    }
+
+    private var fullSuggestionPreview: String? {
+        guard case .ready = suggestionCoordinator.state,
+              let fullSuggestion = suggestionCoordinator.latestFullSuggestionPreview,
+              !fullSuggestion.isEmpty
+        else {
+            return nil
+        }
+
+        let remainingSuggestion = suggestionCoordinator.latestRemainingSuggestionPreview ?? suggestionCoordinator.latestSuggestionPreview
+        if remainingSuggestion == fullSuggestion {
+            return nil
+        }
+
+        return fullSuggestion
     }
 
     private var runtimeSummaryText: String {
@@ -197,8 +225,31 @@ struct MenuBarView: View {
             return "Generating"
 
         case .ready:
-            return "Ready to accept with Tab"
+            let accepted = suggestionCoordinator.latestAcceptedCharacterCount ?? 0
+            let remaining = suggestionCoordinator.latestRemainingCharacterCount ?? 0
+            return "Ready · \(accepted) accepted · \(remaining) remaining"
         }
+    }
+
+    private var acceptanceSummary: String? {
+        if case .ready = suggestionCoordinator.state {
+            return suggestionCoordinator.latestAcceptanceAction
+        }
+
+        guard let latestAcceptanceAction = suggestionCoordinator.latestAcceptanceAction,
+              !latestAcceptanceAction.isEmpty
+        else {
+            return nil
+        }
+
+        let stageMessage = suggestionCoordinator.latestStageMessage
+        if stageMessage.localizedCaseInsensitiveContains("accepted")
+            || stageMessage.localizedCaseInsensitiveContains("typed")
+            || stageMessage.localizedCaseInsensitiveContains("consumed") {
+            return latestAcceptanceAction
+        }
+
+        return nil
     }
 
     private var runtimeStatusColor: Color {

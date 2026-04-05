@@ -15,6 +15,11 @@ final class SuggestionCoordinator: ObservableObject {
     @Published private(set) var state: SuggestionDebugState = .idle
     @Published private(set) var overlayState: OverlayState = .hidden(reason: "Overlay idle.")
     @Published private(set) var latestSuggestionPreview: String?
+    @Published private(set) var latestFullSuggestionPreview: String?
+    @Published private(set) var latestRemainingSuggestionPreview: String?
+    @Published private(set) var latestAcceptedCharacterCount: Int?
+    @Published private(set) var latestRemainingCharacterCount: Int?
+    @Published private(set) var latestAcceptanceAction: String?
     @Published private(set) var latestLatencyMilliseconds: Int?
     @Published private(set) var latestStageMessage = "Idle"
     @Published private(set) var latestOverlayMessage = "Overlay idle."
@@ -37,9 +42,19 @@ final class SuggestionCoordinator: ObservableObject {
     private var generationTask: Task<Void, Never>?
     private var latestWorkID: UInt64 = 0
     private var lastLoggedMessage: String?
-    private var readyContext: FocusedInputContext?
-    private var readyResult: SuggestionResult?
-    private let consoleStages: Set<String> = ["generating", "ready", "empty-result", "failed"]
+    private var activeSession: ActiveSuggestionSession?
+    private let consoleStages: Set<String> = [
+        "generating",
+        "ready",
+        "empty-result",
+        "failed",
+        "tab-accepted-chunk",
+        "tab-accepted-final-chunk",
+        "typed-match-advanced",
+        "typed-match-exhausted",
+        "session-reconciled",
+        "session-exhausted"
+    ]
 
     init(
         permissionManager: PermissionManager,
@@ -126,17 +141,26 @@ final class SuggestionCoordinator: ObservableObject {
             return
         }
 
+        if case .disabled = state {
+            state = .idle
+        }
+
+        if activeSession != nil {
+            reconcileActiveSession(with: snapshot)
+            return
+        }
+
         if let currentContext = contextBuffer.currentContext,
            currentContext.elementIdentifier != focusedContext.elementIdentifier {
             cancelPredictionWork()
             clearSuggestion(clearDiagnostics: true)
             hideOverlay(reason: "Overlay hidden because the focused field changed.")
             state = .idle
-        } else if case .disabled = state {
-            state = .idle
         }
 
-        reconcileReadySuggestion(with: snapshot)
+        if overlayState.isVisible {
+            hideOverlay(reason: "Overlay hidden because no ready suggestion remains.")
+        }
     }
 
     private func handleInputEvent(_ event: CapturedInputEvent) -> Bool {
@@ -147,6 +171,10 @@ final class SuggestionCoordinator: ObservableObject {
 
         if event.kind == .tab {
             return acceptCurrentSuggestion()
+        }
+
+        if let activeSession {
+            return handleInputEvent(event, with: activeSession)
         }
 
         if event.shouldClearSuggestion {
@@ -172,6 +200,48 @@ final class SuggestionCoordinator: ObservableObject {
             generation: latestGenerationNumber,
             message: "Ignored Matcha's own synthetic key event."
         )
+    }
+
+    /// While a suggestion tail is active, normal typing is interpreted relative to that tail first.
+    /// This is the same idea as reconciling optimistic UI with the eventual server state:
+    /// keep the existing session only when the user's new input is still consistent with it.
+    private func handleInputEvent(_ event: CapturedInputEvent, with session: ActiveSuggestionSession) -> Bool {
+        switch event.kind {
+        case .textMutation:
+            if advanceActiveSessionIfTypedCharactersMatch(event.characters, session: session) {
+                return false
+            }
+
+            invalidateActiveSuggestion(
+                reason: overlayHideReason(for: event),
+                clearDiagnostics: false
+            )
+            if event.shouldSchedulePrediction {
+                schedulePrediction()
+            }
+            return false
+
+        case .shortcutMutation:
+            invalidateActiveSuggestion(
+                reason: "Overlay hidden because a shortcut changed the text and invalidated the current suggestion.",
+                clearDiagnostics: false
+            )
+            if event.shouldSchedulePrediction {
+                schedulePrediction()
+            }
+            return false
+
+        case .navigation, .dismissal:
+            invalidateActiveSuggestion(
+                reason: overlayHideReason(for: event),
+                clearDiagnostics: false
+            )
+            state = .idle
+            return false
+
+        case .other, .tab:
+            return false
+        }
     }
 
     private func schedulePrediction() {
@@ -360,12 +430,20 @@ final class SuggestionCoordinator: ObservableObject {
             return
         }
 
-        latestSuggestionPreview = result.text
+        let session = ActiveSuggestionSession(
+            baseContext: liveContext,
+            fullText: result.text,
+            latency: result.latency,
+            rawText: result.rawText,
+            finishReason: result.finishReason
+        )
+
         latestLatencyMilliseconds = Int(result.latency * 1000)
-        readyContext = liveContext
-        readyResult = result
-        state = .ready(text: result.text, latency: result.latency)
-        presentOverlay(text: result.text, at: liveContext.caretRect)
+        latestGenerationNumber = liveContext.generation
+        activeSession = session
+        applySessionDiagnostics(session, acceptanceAction: "Generated new suggestion.")
+        state = .ready(text: session.remainingText, latency: session.latency)
+        presentOverlay(text: session.remainingText, at: liveContext.caretRect)
         logStage(
             "ready",
             workID: workID,
@@ -406,9 +484,11 @@ final class SuggestionCoordinator: ObservableObject {
         }
     }
 
-    /// Keeps an already-ready suggestion aligned with live focus snapshots and invalidates drift.
-    private func reconcileReadySuggestion(with snapshot: FocusSnapshot) {
-        guard case .ready = state, let readyContext, let readyResult else {
+    /// Reconciles the active suggestion session with the latest live AX context.
+    /// This is the heart of partial acceptance: a text change is not automatically "stale" anymore.
+    /// It may instead mean "the user consumed the next expected part of the suggestion."
+    private func reconcileActiveSession(with snapshot: FocusSnapshot) {
+        guard let session = activeSession else {
             if overlayState.isVisible {
                 hideOverlay(reason: "Overlay hidden because no ready suggestion remains.")
             }
@@ -416,41 +496,44 @@ final class SuggestionCoordinator: ObservableObject {
         }
 
         guard case .supported = snapshot.capability, let rawContext = snapshot.context else {
-            invalidateReadySuggestion(reason: snapshot.capability.summary)
+            invalidateActiveSuggestion(reason: snapshot.capability.summary)
             return
         }
 
         let liveContext = contextBuffer.materialize(from: rawContext)
 
-        guard liveContext.elementIdentifier == readyContext.elementIdentifier else {
-            invalidateReadySuggestion(reason: "Overlay hidden because the focused field changed.")
-            return
+        switch reconcile(session: session, with: liveContext) {
+        case let .valid(reconciledSession, advancement):
+            activeSession = reconciledSession
+            latestGenerationNumber = liveContext.generation
+            applySessionDiagnostics(reconciledSession, acceptanceAction: advancement?.actionSummary ?? latestAcceptanceAction)
+
+            if reconciledSession.isExhausted {
+                completeActiveSuggestion(
+                    reason: "Overlay hidden because the active suggestion was fully consumed.",
+                    scheduleNextPrediction: true,
+                    stage: advancement?.exhaustionStage ?? "session-exhausted",
+                    message: advancement?.exhaustionMessage ?? "The active suggestion was fully consumed.",
+                    acceptanceAction: advancement?.actionSummary ?? "Suggestion tail was fully consumed."
+                )
+                return
+            }
+
+            state = .ready(text: reconciledSession.remainingText, latency: reconciledSession.latency)
+            presentOverlay(text: reconciledSession.remainingText, at: liveContext.caretRect)
+            if let advancement {
+                logStage(
+                    advancement.stage,
+                    workID: latestWorkID,
+                    generation: liveContext.generation,
+                    message: advancement.message,
+                    normalizedOutput: reconciledSession.remainingText
+                )
+            }
+
+        case let .invalid(reason):
+            invalidateActiveSuggestion(reason: reason)
         }
-
-        guard liveContext.contentSignature == readyContext.contentSignature else {
-            invalidateReadySuggestion(reason: "Overlay hidden because the text or caret moved.")
-            return
-        }
-
-        guard liveContext.generation == readyResult.generation else {
-            invalidateReadySuggestion(reason: "Overlay hidden because the ready suggestion became stale.")
-            return
-        }
-
-        guard liveContext.selection.length == 0 else {
-            invalidateReadySuggestion(reason: "Overlay hidden because text is selected.")
-            return
-        }
-
-        self.readyContext = liveContext
-        presentOverlay(text: readyResult.text, at: liveContext.caretRect)
-    }
-
-    private func invalidateReadySuggestion(reason: String) {
-        cancelPredictionWork()
-        clearSuggestion(clearDiagnostics: true)
-        hideOverlay(reason: reason)
-        state = .idle
     }
 
     /// Fully disables prediction, clears cached context, and updates UI messaging with the cause.
@@ -466,9 +549,13 @@ final class SuggestionCoordinator: ObservableObject {
     /// Clears the active suggestion and optionally preserves or drops diagnostic breadcrumbs.
     private func clearSuggestion(clearDiagnostics: Bool = false) {
         latestSuggestionPreview = nil
+        latestFullSuggestionPreview = nil
+        latestRemainingSuggestionPreview = nil
+        latestAcceptedCharacterCount = nil
+        latestRemainingCharacterCount = nil
+        latestAcceptanceAction = nil
         latestLatencyMilliseconds = nil
-        readyContext = nil
-        readyResult = nil
+        activeSession = nil
 
         if clearDiagnostics {
             latestRequestPreview = nil
@@ -519,7 +606,6 @@ final class SuggestionCoordinator: ObservableObject {
 
     /// Accepts the current suggestion only if the field, generation, and visible overlay still match.
     private func acceptCurrentSuggestion() -> Bool {
-        focusModel.refreshNow()
         let snapshot = focusModel.snapshot
 
         guard permissionManager.inputMonitoringGranted else {
@@ -530,7 +616,7 @@ final class SuggestionCoordinator: ObservableObject {
             return passTabThrough(reason: snapshot.capability.summary)
         }
 
-        guard case .ready = state, let readyResult, let readyContext else {
+        guard case .ready = state, let currentSession = activeSession else {
             return passTabThrough(reason: "Tab passed through because no valid suggestion was ready.")
         }
 
@@ -538,20 +624,42 @@ final class SuggestionCoordinator: ObservableObject {
             return passTabThrough(reason: "Tab passed through because text is currently selected.")
         }
 
-        guard overlayMatchesReadySuggestion(text: readyResult.text) else {
+        guard overlayAllowsAcceptance(of: currentSession.remainingText) else {
             return passTabThrough(reason: "Tab passed through because no visible ghost text matched the ready suggestion.")
         }
 
+        let sessionForAcceptance: ActiveSuggestionSession
         let liveContext = contextBuffer.materialize(from: rawContext)
-        guard liveContext.elementIdentifier == readyContext.elementIdentifier else {
-            return passTabThrough(reason: "Tab passed through because the focused field changed.")
+        if overlayState.isVisible {
+            // A visible overlay means AX has already caught up to the current caret/text state,
+            // so we can insist that live editor state and session state agree before accepting.
+            switch reconcile(session: currentSession, with: liveContext) {
+            case .invalid(let reason):
+                return passTabThrough(reason: reason)
+
+            case .valid(let reconciledSession, _):
+                sessionForAcceptance = reconciledSession
+            }
+        } else {
+            // We intentionally allow acceptance while the overlay is temporarily hidden.
+            // That hidden state usually means "waiting for host app caret sync" after a prior
+            // partial acceptance, not "there is no active suggestion anymore."
+            guard liveContext.elementIdentifier == currentSession.baseContext.elementIdentifier else {
+                return passTabThrough(reason: "Tab passed through because the focused field changed.")
+            }
+            sessionForAcceptance = currentSession
         }
 
-        guard liveContext.generation == readyResult.generation else {
-            return passTabThrough(reason: "Tab passed through because the ready suggestion became stale.")
+        guard !sessionForAcceptance.isExhausted else {
+            return passTabThrough(reason: "Tab passed through because no remaining suggestion text was available.")
         }
 
-        guard suggestionInserter.insert(readyResult.text) else {
+        let acceptedChunk = nextAcceptanceChunk(from: sessionForAcceptance.remainingText)
+        guard !acceptedChunk.isEmpty else {
+            return passTabThrough(reason: "Tab passed through because no remaining suggestion chunk was available.")
+        }
+
+        guard suggestionInserter.insert(acceptedChunk) else {
             let message = suggestionInserter.lastErrorMessage ?? "Suggestion insertion failed."
             cancelPredictionWork()
             clearSuggestion(clearDiagnostics: true)
@@ -560,24 +668,44 @@ final class SuggestionCoordinator: ObservableObject {
             logStage(
                 "insert-failed",
                 workID: latestWorkID,
-                generation: readyResult.generation,
+                generation: liveContext.generation,
                 message: message,
-                normalizedOutput: readyResult.text
+                normalizedOutput: acceptedChunk
             )
             return false
         }
 
         cancelPredictionWork()
-        clearSuggestion(clearDiagnostics: true)
-        hideOverlay(reason: "Overlay hidden because Tab accepted the current suggestion.")
-        focusModel.refreshNow()
-        state = .idle
+
+        let advancedSession = sessionForAcceptance.advancing(by: acceptedChunk.count)
+        latestGenerationNumber = liveContext.generation
+
+        if advancedSession.isExhausted {
+            clearSuggestion(clearDiagnostics: false)
+            hideOverlay(reason: "Overlay hidden because Tab accepted the final suggestion chunk.")
+            latestAcceptanceAction = "Accepted final chunk with Tab."
+            state = .idle
+            logStage(
+                "tab-accepted-final-chunk",
+                workID: latestWorkID,
+                generation: liveContext.generation,
+                message: "Inserted the final suggestion chunk and queued a refresh.",
+                normalizedOutput: acceptedChunk
+            )
+            schedulePrediction()
+            return true
+        }
+
+        activeSession = advancedSession
+        applySessionDiagnostics(advancedSession, acceptanceAction: "Accepted next chunk with Tab.")
+        state = .ready(text: advancedSession.remainingText, latency: advancedSession.latency)
+        hideOverlay(reason: "Overlay hidden while waiting for the host app to report the new caret position.")
         logStage(
-            "tab-accepted",
+            "tab-accepted-chunk",
             workID: latestWorkID,
-            generation: readyResult.generation,
-            message: "Inserted the ready suggestion and consumed Tab.",
-            normalizedOutput: readyResult.text
+            generation: liveContext.generation,
+            message: "Inserted the next suggestion chunk and kept the remaining tail active.",
+            normalizedOutput: acceptedChunk
         )
         return true
     }
@@ -598,6 +726,151 @@ final class SuggestionCoordinator: ObservableObject {
         return false
     }
 
+    /// Advances the active session from the user's directly typed characters when they match the
+    /// next expected tail exactly. This avoids a wasteful regeneration for text the user already
+    /// committed to the field themselves.
+    private func advanceActiveSessionIfTypedCharactersMatch(_ typedCharacters: String, session: ActiveSuggestionSession) -> Bool {
+        guard typedCharacters.isDirectTextMutation else {
+            return false
+        }
+
+        guard session.remainingText.hasPrefix(typedCharacters) else {
+            return false
+        }
+
+        cancelPredictionWork()
+        let advancedSession = session.advancing(by: typedCharacters.count)
+        activeSession = advancedSession
+        applySessionDiagnostics(advancedSession, acceptanceAction: "User typed the next expected characters.")
+
+        if advancedSession.isExhausted {
+            completeActiveSuggestion(
+                reason: "Overlay hidden because the user typed through the rest of the suggestion.",
+                scheduleNextPrediction: true,
+                stage: "typed-match-exhausted",
+                message: "The user typed the remaining suggestion characters exactly.",
+                acceptanceAction: "User typed through the rest of the suggestion."
+            )
+            return true
+        }
+
+        state = .ready(text: advancedSession.remainingText, latency: advancedSession.latency)
+        hideOverlay(reason: "Overlay hidden while waiting for the host app to report the new caret position.")
+        logStage(
+            "typed-match-advanced",
+            workID: latestWorkID,
+            generation: latestGenerationNumber,
+            message: "User typing matched the active suggestion tail exactly.",
+            normalizedOutput: advancedSession.remainingText
+        )
+        return true
+    }
+
+    private func invalidateActiveSuggestion(
+        reason: String,
+        clearDiagnostics: Bool = true
+    ) {
+        cancelPredictionWork()
+        clearSuggestion(clearDiagnostics: clearDiagnostics)
+        hideOverlay(reason: reason)
+        state = .idle
+    }
+
+    private func completeActiveSuggestion(
+        reason: String,
+        scheduleNextPrediction: Bool,
+        stage: String,
+        message: String,
+        acceptanceAction: String
+    ) {
+        let generation = latestGenerationNumber
+        clearSuggestion(clearDiagnostics: false)
+        latestAcceptanceAction = acceptanceAction
+        hideOverlay(reason: reason)
+        state = .idle
+        logStage(stage, workID: latestWorkID, generation: generation, message: message)
+
+        if scheduleNextPrediction {
+            schedulePrediction()
+        }
+    }
+
+    private func applySessionDiagnostics(_ session: ActiveSuggestionSession, acceptanceAction: String?) {
+        latestSuggestionPreview = session.remainingText
+        latestFullSuggestionPreview = session.fullText
+        latestRemainingSuggestionPreview = session.remainingText
+        latestAcceptedCharacterCount = session.acceptedCount
+        latestRemainingCharacterCount = session.remainingCount
+        if let acceptanceAction {
+            latestAcceptanceAction = acceptanceAction
+        }
+    }
+
+    private func reconcile(session: ActiveSuggestionSession, with liveContext: FocusedInputContext) -> SessionReconciliation {
+        guard liveContext.elementIdentifier == session.baseContext.elementIdentifier else {
+            return .invalid("Overlay hidden because the focused field changed.")
+        }
+
+        guard liveContext.selection.length == 0 else {
+            return .invalid("Overlay hidden because text is selected.")
+        }
+
+        guard liveContext.trailingText == session.baseContext.trailingText else {
+            return .invalid("Overlay hidden because text after the caret changed.")
+        }
+
+        guard liveContext.precedingText.hasPrefix(session.baseContext.precedingText) else {
+            return .invalid("Overlay hidden because text before the caret no longer matches the suggestion anchor.")
+        }
+
+        let consumedSuffix = String(liveContext.precedingText.dropFirst(session.baseContext.precedingText.count))
+        guard session.fullText.hasPrefix(consumedSuffix) else {
+            return .invalid("Overlay hidden because typed text diverged from the active suggestion.")
+        }
+
+        guard consumedSuffix.count >= session.consumedCharacterCount else {
+            return .invalid("Overlay hidden because the active suggestion was partially undone.")
+        }
+
+        let reconciledSession = session.withConsumedCharacters(consumedSuffix.count)
+        guard consumedSuffix.count != session.consumedCharacterCount else {
+            return .valid(reconciledSession, advancement: nil)
+        }
+
+        let advancedBy = consumedSuffix.count - session.consumedCharacterCount
+        let consumedAdvance = String(reconciledSession.acceptedText.suffix(advancedBy))
+        let advancement = SessionAdvancement(
+            stage: reconciledSession.isExhausted ? "session-exhausted" : "session-reconciled",
+            message: reconciledSession.isExhausted
+                ? "The live field state caught up with the fully consumed suggestion."
+                : "The live field state consumed \(advancedBy) additional suggestion characters.",
+            actionSummary: "Suggestion tail advanced from live editor state.",
+            exhaustionStage: "session-exhausted",
+            exhaustionMessage: "The live field state fully consumed the active suggestion.",
+            consumedText: consumedAdvance
+        )
+        return .valid(reconciledSession, advancement: advancement)
+    }
+
+    /// Accepts optional leading whitespace plus the next visible token.
+    /// This is intentionally a user-facing chunking rule rather than a model-token rule.
+    private func nextAcceptanceChunk(from remainingText: String) -> String {
+        guard !remainingText.isEmpty else {
+            return ""
+        }
+
+        var index = remainingText.startIndex
+        while index < remainingText.endIndex, remainingText[index].isWhitespace {
+            index = remainingText.index(after: index)
+        }
+
+        while index < remainingText.endIndex, !remainingText[index].isWhitespace {
+            index = remainingText.index(after: index)
+        }
+
+        return String(remainingText[..<index])
+    }
+
     private func overlayHideReason(for event: CapturedInputEvent) -> String {
         switch event.kind {
         case .textMutation, .shortcutMutation:
@@ -611,9 +884,11 @@ final class SuggestionCoordinator: ObservableObject {
         }
     }
 
-    private func overlayMatchesReadySuggestion(text: String) -> Bool {
+    /// The overlay may be hidden briefly while we wait for the host app to publish an updated
+    /// caret position after partial acceptance, so hidden does not automatically mean "reject Tab."
+    private func overlayAllowsAcceptance(of text: String) -> Bool {
         guard case let .visible(visibleText, _) = overlayState else {
-            return false
+            return true
         }
 
         return visibleText == text
@@ -776,5 +1051,31 @@ final class SuggestionCoordinator: ObservableObject {
 
         let index = escaped.index(escaped.startIndex, offsetBy: 160)
         return "\(escaped[..<index])..."
+    }
+}
+
+private enum SessionReconciliation {
+    case valid(ActiveSuggestionSession, advancement: SessionAdvancement?)
+    case invalid(String)
+}
+
+private struct SessionAdvancement {
+    let stage: String
+    let message: String
+    let actionSummary: String
+    let exhaustionStage: String
+    let exhaustionMessage: String
+    let consumedText: String
+}
+
+private extension String {
+    /// Direct text input is the only mutation we can safely reconcile optimistically from the
+    /// key event alone. Control characters such as backspace or return require regeneration.
+    var isDirectTextMutation: Bool {
+        guard !isEmpty else {
+            return false
+        }
+
+        return unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
     }
 }

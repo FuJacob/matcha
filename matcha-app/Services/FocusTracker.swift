@@ -347,11 +347,23 @@ final class FocusTracker {
                range: NSRange(location: selection.location, length: 0),
                on: element
            ), !rect.isEmpty {
-            return AXHelper.cocoaRect(
+            let cocoaRect = AXHelper.cocoaRect(
                 fromAccessibilityRect: rect,
                 bundleIdentifier: bundleIdentifier,
                 isTextRect: true
             )
+            print("[\(bundleIdentifier)] resolveCaretRect: Branch 1 (Zero-length range)")
+            print("  Raw rect: \(rect)")
+            print("  Cocoa rect: \(cocoaRect)")
+            
+            let normalized = normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
+            print("  Returned rect: \(normalized)")
+            
+            if cocoaRect.width > 10 {
+                print("  ⚠️ WARNING: Zero-length range returned a wide rect. This is likely a text block/fragment, not a caret.")
+            }
+            
+            return normalized
         }
 
         if supportsBoundsForRange,
@@ -362,15 +374,51 @@ final class FocusTracker {
                on: element
            ), !rect.isEmpty {
             let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: rect, bundleIdentifier: bundleIdentifier, isTextRect: true)
-            return CGRect(x: cocoaRect.maxX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
+            print("[\(bundleIdentifier)] resolveCaretRect: Branch 2 (Previous character)")
+            print("  Raw rect: \(rect)")
+            print("  Cocoa rect: \(cocoaRect)")
+            
+            let returnedRect = CGRect(x: cocoaRect.maxX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
+            print("  Returned rect: \(returnedRect)")
+            
+            if cocoaRect.width > 30 { // A single character shouldn't be very wide
+                print("  ⚠️ WARNING: Previous character returned a very wide rect. This is likely taking the whole element frame, causing maxX to overshoot.")
+            }
+            
+            return returnedRect
         }
 
         if supportsFrame,
            let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty {
-            return AXHelper.cocoaRect(fromAccessibilityRect: frame, bundleIdentifier: bundleIdentifier, isTextRect: false)
+            let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: frame, bundleIdentifier: bundleIdentifier, isTextRect: false)
+            print("[\(bundleIdentifier)] resolveCaretRect: Branch 3 (AXFrame fallback)")
+            print("  Raw AXFrame: \(frame)")
+            print("  Cocoa rect: \(cocoaRect)")
+            
+            if cocoaRect.width > 10 {
+                print("  ⚠️ WARNING: AXFrame fallback used. This returns the whole element frame and will likely push the overlay to the far right edge.")
+            }
+            
+            return cocoaRect
         }
 
+        print("[\(bundleIdentifier)] resolveCaretRect: Failed all fallback branches (returned nil)")
         return nil
+    }
+
+    /// Some browser-based editors return a full line fragment for a zero-length range instead of
+    /// a narrow caret box. Collapse those wide rects back down to a caret-like anchor.
+    private func normalizedCaretRect(fromZeroLengthRangeRect rect: CGRect) -> CGRect {
+        guard !rect.isEmpty else {
+            return rect
+        }
+
+        let normalizedWidth: CGFloat = 2
+        if rect.width <= 6 {
+            return CGRect(x: rect.minX, y: rect.minY, width: normalizedWidth, height: rect.height)
+        }
+
+        return CGRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height)
     }
 
     /// Detects secure inputs so Matcha can intentionally refuse to operate in sensitive fields.

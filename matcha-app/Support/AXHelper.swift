@@ -249,6 +249,29 @@ enum AXHelper {
         "com.superhuman.electronic-superman"
     ]
 
+    private static let requiresPixelToPointScalingBundleFragments = [
+        "chrome",
+        "chromium",
+        "electron",
+        "brave",
+        "vivaldi",
+        "edge",
+        "gmail",
+        "figma",
+        "discord",
+        "slack",
+        "superhuman"
+    ]
+
+    private static func requiresPixelToPointScaling(bundleIdentifier: String) -> Bool {
+        if requiresPixelToPointScalingBundles.contains(bundleIdentifier) {
+            return true
+        }
+
+        let normalized = bundleIdentifier.lowercased()
+        return requiresPixelToPointScalingBundleFragments.contains { normalized.contains($0) }
+    }
+
     /// Converts raw Accessibility coordinates into global AppKit points.
     /// Some applications (like Chromium-based browsers) incorrectly return raw physical 
     /// backing pixels for text ranges, so `isTextRect` allows conditionally scaling them back down.
@@ -261,7 +284,7 @@ enum AXHelper {
         var normalizedRect = rect
 
         // Chromium often returns physical pixels instead of Cocoa points for text ranges on Retina.
-        if isTextRect && requiresPixelToPointScalingBundles.contains(bundleIdentifier) {
+        if isTextRect && requiresPixelToPointScaling(bundleIdentifier: bundleIdentifier) {
             // Find the screen this coordinate falls on (approximate) to determine the scale factor.
             let fallbackScale = NSScreen.main?.backingScaleFactor ?? 2.0
             let scale: CGFloat = NSScreen.screens.first(where: {
@@ -276,16 +299,21 @@ enum AXHelper {
             )
         }
 
-        // Global AX Coordinates have a Top-Left origin relative to the PRIMARY screen.
-        // AppKit Coordinates have a Bottom-Left origin relative to the PRIMARY screen.
-        // Therefore, we solely use the primary screen's height to flip the Y axis.
-        guard let primaryScreen = NSScreen.screens.first else {
+        // AX text bounds are reported in a top-left global space. Use the union of all screen
+        // frames rather than only the primary screen so multi-display coordinates still map correctly.
+        let desktopBounds = NSScreen.screens
+            .map(\.frame)
+            .reduce(into: CGRect.null) { partialResult, frame in
+                partialResult = partialResult.union(frame)
+            }
+
+        guard !desktopBounds.isNull else {
             return normalizedRect
         }
 
         return CGRect(
             x: normalizedRect.origin.x,
-            y: primaryScreen.frame.height - normalizedRect.origin.y - normalizedRect.height,
+            y: desktopBounds.maxY - normalizedRect.origin.y - normalizedRect.height,
             width: normalizedRect.width,
             height: normalizedRect.height
         )

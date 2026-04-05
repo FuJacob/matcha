@@ -47,11 +47,12 @@ final class OverlayController {
         contentView.layoutSubtreeIfNeeded()
         let contentSize = contentView.fittingSize
 
-        // The first version keeps positioning intentionally simple: render just to the right of
-        // the caret and vertically center the ghost text against the reported caret height.
+        // Prefer a caret-adjacent anchor and align against the upper portion of the reported
+        // text rect. Browser editors often report a taller line fragment than a native caret box,
+        // and centering against that fragment makes ghost text sit visibly too low.
         let origin = CGPoint(
             x: caretRect.maxX + 6,
-            y: caretRect.minY + max((caretRect.height - contentSize.height) / 2, 0)
+            y: caretRect.minY + max(caretRect.height - contentSize.height - 1, 0)
         )
         let frame = CGRect(origin: origin, size: contentSize)
 

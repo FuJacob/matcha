@@ -103,6 +103,81 @@ struct SuggestionResult: Equatable, Sendable {
     let finishReason: String
 }
 
+/// Represents one active inline-completion session after the model has produced a suggestion.
+/// The key architectural shift is that a suggestion is no longer "fire once and forget."
+/// Instead, it becomes durable interaction state that can be partially consumed over time.
+struct ActiveSuggestionSession: Equatable, Sendable {
+    /// The focused field state that produced the original suggestion.
+    /// We keep this as the anchor so later text changes can be interpreted as:
+    /// "user consumed part of the suggestion" vs "user diverged from it."
+    let baseContext: FocusedInputContext
+    let fullText: String
+    let consumedCharacterCount: Int
+    let latency: TimeInterval
+    let rawText: String
+    let finishReason: String
+
+    init(
+        baseContext: FocusedInputContext,
+        fullText: String,
+        consumedCharacterCount: Int = 0,
+        latency: TimeInterval,
+        rawText: String,
+        finishReason: String
+    ) {
+        self.baseContext = baseContext
+        self.fullText = fullText
+        self.consumedCharacterCount = min(max(consumedCharacterCount, 0), fullText.count)
+        self.latency = latency
+        self.rawText = rawText
+        self.finishReason = finishReason
+    }
+
+    var acceptedText: String {
+        fullText.leadingCharacters(consumedCharacterCount)
+    }
+
+    var remainingText: String {
+        fullText.droppingLeadingCharacters(consumedCharacterCount)
+    }
+
+    var acceptedCount: Int {
+        consumedCharacterCount
+    }
+
+    var remainingCount: Int {
+        remainingText.count
+    }
+
+    /// A whitespace-only tail is effectively exhausted for inline UX.
+    /// Showing "ghost spaces" is visually confusing and not worth preserving.
+    var isExhausted: Bool {
+        remainingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func advancing(by consumedCharacters: Int) -> ActiveSuggestionSession {
+        ActiveSuggestionSession(
+            baseContext: baseContext,
+            fullText: fullText,
+            consumedCharacterCount: self.consumedCharacterCount + max(consumedCharacters, 0),
+            latency: latency,
+            rawText: rawText,
+            finishReason: finishReason
+        )
+    }
+
+    func withConsumedCharacters(_ consumedCharacters: Int) -> ActiveSuggestionSession {
+        ActiveSuggestionSession(
+            baseContext: baseContext,
+            fullText: fullText,
+            consumedCharacterCount: consumedCharacters,
+            latency: latency,
+            rawText: rawText,
+            finishReason: finishReason
+        )
+    }
+}
+
 /// High-level suggestion states surfaced to the menu and overlay logic.
 enum SuggestionDebugState: Equatable {
     case idle
@@ -199,5 +274,17 @@ enum SuggestionClientError: LocalizedError {
         case .cancelled:
             return "Generation was cancelled."
         }
+    }
+}
+
+private extension String {
+    /// Swift `String` is a collection of extended grapheme clusters, not bytes.
+    /// These helpers slice by user-visible characters so emoji and composed characters stay intact.
+    func leadingCharacters(_ count: Int) -> String {
+        String(prefix(max(count, 0)))
+    }
+
+    func droppingLeadingCharacters(_ count: Int) -> String {
+        String(dropFirst(max(count, 0)))
     }
 }
