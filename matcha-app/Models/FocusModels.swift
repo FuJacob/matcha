@@ -141,12 +141,4 @@ struct FocusSnapshot: Equatable {
     var capabilitySummary: String {
         capability.summary
     }
-
-    var isSupported: Bool {
-        if case .supported = capability {
-            return true
-        }
-
-        return false
-    }
 }

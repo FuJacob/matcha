@@ -5,14 +5,10 @@ import Combine
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let permissionManager: PermissionManager
-    let serverManager: LlamaServerManager
     let runtimeModel: RuntimeBootstrapModel
     let focusModel: FocusTrackingModel
     let inputMonitor: InputMonitor
     let suggestionModel: SuggestionDebugModel
-    let overlayController: OverlayController
-    private let suppressionController: InputSuppressionController
-    private let suggestionInserter: SuggestionInserter
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -44,14 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         self.permissionManager = permissionManager
-        self.serverManager = serverManager
         self.runtimeModel = runtimeModel
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
         self.suggestionModel = suggestionModel
-        self.overlayController = overlayController
-        self.suppressionController = suppressionController
-        self.suggestionInserter = suggestionInserter
         super.init()
 
         permissionManager.$inputMonitoringGranted

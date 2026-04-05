@@ -28,11 +28,6 @@ final class PermissionManager: ObservableObject {
         inputMonitoringGranted = CGPreflightListenEventAccess()
     }
 
-    func requestInputMonitoringPermission() {
-        _ = CGRequestListenEventAccess()
-        refresh()
-    }
-
     func openAccessibilitySettings() {
         NSWorkspace.shared.open(
             URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!

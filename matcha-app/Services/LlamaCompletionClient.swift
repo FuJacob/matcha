@@ -2,8 +2,6 @@ import Foundation
 
 private struct CompletionRequestBody: Encodable {
     let prompt: String
-    let idSlot: Int
-    let cachePrompt: Bool
     let stream: Bool
     let nPredict: Int
     let temperature: Double
@@ -12,8 +10,6 @@ private struct CompletionRequestBody: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case prompt
-        case idSlot = "id_slot"
-        case cachePrompt = "cache_prompt"
         case stream
         case nPredict = "n_predict"
         case temperature
@@ -75,8 +71,6 @@ final class LlamaCompletionClient {
     private func fetchCompletion(baseURL: URL, request: SuggestionRequest) async throws -> String {
         let body = CompletionRequestBody(
             prompt: request.prompt,
-            idSlot: 0,
-            cachePrompt: true,
             stream: false,
             nPredict: request.maxPredictionTokens,
             temperature: request.temperature,

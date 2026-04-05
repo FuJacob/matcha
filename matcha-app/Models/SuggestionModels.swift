@@ -14,9 +14,9 @@ struct SuggestionConfiguration: Equatable {
         // Short completions are dramatically cheaper than long ones and feel better for inline UX.
         maxPredictionTokens: 12,
         // A tiny debounce still gives the host app time to update AX text state after a key press.
-        debounceMilliseconds: 90,
+        debounceMilliseconds: 40,
         temperature: 0.15,
-        topP: 0.85,
+        topP: 0.75,
         // Prompt windows should stay small. Sending an entire Xcode buffer kills latency for no gain.
         maxPrefixCharacters: 192,
         maxSuffixCharacters: 48

@@ -12,11 +12,6 @@ final class RuntimeBootstrapModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var startupTask: Task<Void, Never>?
 
-    /// Convenience init avoids actor-isolated default arguments in a nonisolated call site.
-    convenience init() {
-        self.init(serverManager: LlamaServerManager())
-    }
-
     init(serverManager: LlamaServerManager) {
         self.serverManager = serverManager
         state = serverManager.state
@@ -64,18 +59,5 @@ final class RuntimeBootstrapModel: ObservableObject {
         startupTask?.cancel()
         startupTask = nil
         serverManager.stopSynchronously()
-    }
-
-    var menuBarIconName: String {
-        switch state {
-        case .idle:
-            return "leaf"
-        case .starting, .loading:
-            return "cpu"
-        case .ready:
-            return "checkmark.circle"
-        case .failed:
-            return "exclamationmark.triangle"
-        }
     }
 }

@@ -10,7 +10,6 @@ final class SuggestionDebugModel: ObservableObject {
     @Published private(set) var state: SuggestionDebugState = .idle
     @Published private(set) var overlayState: OverlayState = .hidden(reason: "Overlay idle.")
     @Published private(set) var latestSuggestionPreview: String?
-    @Published private(set) var latestError: String?
     @Published private(set) var latestLatencyMilliseconds: Int?
     @Published private(set) var latestStageMessage = "Idle"
     @Published private(set) var latestOverlayMessage = "Overlay idle."
@@ -124,10 +123,8 @@ final class SuggestionDebugModel: ObservableObject {
             cancelPredictionWork()
             clearSuggestion(clearDiagnostics: true)
             hideOverlay(reason: "Overlay hidden because the focused field changed.")
-            latestError = nil
             state = .idle
         } else if case .disabled = state {
-            latestError = nil
             state = .idle
         }
 
@@ -181,7 +178,6 @@ final class SuggestionDebugModel: ObservableObject {
         let workID = nextWorkID()
 
         state = .debouncing
-        latestError = nil
         logStage("debouncing", workID: workID, message: "Waiting \(configuration.debounceMilliseconds)ms before generating.")
 
         debounceTask = Task { [weak self] in
@@ -231,7 +227,7 @@ final class SuggestionDebugModel: ObservableObject {
 
         let context = contextBuffer.materialize(from: rawContext)
         let prompt = buildPrompt(from: context)
-        let requestPreview = buildRequestPreview(prompt: prompt)
+        let requestPreview = buildRequestPreview()
         latestGenerationNumber = context.generation
         latestRequestPreview = requestPreview
         latestPromptPreview = prompt
@@ -251,7 +247,8 @@ final class SuggestionDebugModel: ObservableObject {
             workID: workID,
             generation: context.generation,
             message: "Requesting a completion for \(context.elementIdentifier).",
-            prompt: requestPreview
+            request: requestPreview,
+            prompt: prompt
         )
 
         generationTask = Task { [weak self] in
@@ -350,7 +347,6 @@ final class SuggestionDebugModel: ObservableObject {
 
         latestSuggestionPreview = result.text
         latestLatencyMilliseconds = Int(result.latency * 1000)
-        latestError = nil
         readyContext = liveContext
         readyResult = result
         state = .ready(text: result.text, latency: result.latency)
@@ -372,7 +368,6 @@ final class SuggestionDebugModel: ObservableObject {
 
         clearSuggestion()
         hideOverlay(reason: "Overlay hidden because generation failed.")
-        latestError = message
         state = .failed(message)
         logStage("failed", workID: workID, generation: latestGenerationNumber, message: message)
     }
@@ -386,7 +381,6 @@ final class SuggestionDebugModel: ObservableObject {
         switch focusModel.snapshot.capability {
         case .supported:
             if case .disabled = state {
-                latestError = nil
                 state = .idle
             }
 
@@ -438,7 +432,6 @@ final class SuggestionDebugModel: ObservableObject {
         cancelPredictionWork()
         clearSuggestion(clearDiagnostics: true)
         hideOverlay(reason: reason)
-        latestError = nil
         state = .idle
     }
 
@@ -447,7 +440,6 @@ final class SuggestionDebugModel: ObservableObject {
         contextBuffer.clear()
         clearSuggestion(clearDiagnostics: true)
         hideOverlay(reason: reason)
-        latestError = reason
         state = .disabled(reason)
         latestStageMessage = "Disabled: \(reason)"
     }
@@ -475,9 +467,28 @@ final class SuggestionDebugModel: ObservableObject {
     }
 
     private func buildPrompt(from context: FocusedInputContext) -> String {
-        // For the plain `/completion` slice we only send text before the caret.
-        // That keeps the payload minimal and matches the simpler baseline behavior.
-        String(context.precedingText.suffix(configuration.maxPrefixCharacters))
+        let prefix = String(context.precedingText.suffix(configuration.maxPrefixCharacters))
+        let suffix = String(context.trailingText.prefix(configuration.maxSuffixCharacters))
+
+        // Small local models follow a direct task description better than a raw prefix dump.
+        // We still ask for plain continuation text, but we make the contract explicit.
+        return """
+        Your only job is to predict the exact next characters or words that seamlessly continue the user's text.
+
+        CRITICAL RULES:
+        1. Output ONLY the raw continuation text.
+        2. Do not explain anything.
+        3. Do not add quotes, labels, or markdown.
+        4. Keep the continuation short and natural.
+
+        Text before the cursor:
+        \(prefix)
+
+        Text after the cursor:
+        \(suffix)
+
+        Continuation: 
+        """
     }
 
     private func nextWorkID() -> UInt64 {
@@ -485,10 +496,14 @@ final class SuggestionDebugModel: ObservableObject {
         return latestWorkID
     }
 
-    private func buildRequestPreview(prompt: String) -> String {
+    private func buildRequestPreview() -> String {
         """
         POST /completion
-        prompt: \(prompt.isEmpty ? "<empty>" : prompt)
+        n_predict: \(configuration.maxPredictionTokens)
+        temperature: \(configuration.temperature)
+        top_p: \(configuration.topP)
+        stop: ["\\n"]
+        cache: disabled
         """
     }
 
@@ -527,7 +542,6 @@ final class SuggestionDebugModel: ObservableObject {
 
         guard suggestionInserter.insert(readyResult.text) else {
             let message = suggestionInserter.lastErrorMessage ?? "Suggestion insertion failed."
-            latestError = message
             cancelPredictionWork()
             clearSuggestion(clearDiagnostics: true)
             hideOverlay(reason: "Overlay hidden because suggestion insertion failed.")
@@ -542,7 +556,6 @@ final class SuggestionDebugModel: ObservableObject {
             return false
         }
 
-        latestError = nil
         cancelPredictionWork()
         clearSuggestion(clearDiagnostics: true)
         hideOverlay(reason: "Overlay hidden because Tab accepted the current suggestion.")
@@ -563,7 +576,6 @@ final class SuggestionDebugModel: ObservableObject {
         cancelPredictionWork()
         clearSuggestion(clearDiagnostics: true)
         hideOverlay(reason: reason)
-        latestError = nil
         state = .idle
         logStage(
             "tab-passed-through",
@@ -643,6 +655,7 @@ final class SuggestionDebugModel: ObservableObject {
         workID: UInt64,
         generation: UInt64? = nil,
         message: String,
+        request: String? = nil,
         prompt: String? = nil,
         rawOutput: String? = nil,
         normalizedOutput: String? = nil
@@ -661,6 +674,10 @@ final class SuggestionDebugModel: ObservableObject {
 
         parts.append("message=\(message)")
 
+        if let request {
+            parts.append("request=\(makeDebugPreview(request))")
+        }
+
         if let prompt {
             parts.append("prompt=\(makeDebugPreview(prompt))")
         }
@@ -673,7 +690,48 @@ final class SuggestionDebugModel: ObservableObject {
             parts.append("normalized=\(makeDebugPreview(normalizedOutput))")
         }
 
-        logLine(parts.joined(separator: " "))
+        let summaryLine = parts.joined(separator: " ")
+        logLine(summaryLine)
+
+        if let request {
+            logTextBlock(
+                kind: "request",
+                stage: stage,
+                workID: workID,
+                generation: generation,
+                text: request
+            )
+        }
+
+        if let prompt {
+            logTextBlock(
+                kind: "prompt",
+                stage: stage,
+                workID: workID,
+                generation: generation,
+                text: prompt
+            )
+        }
+
+        if let rawOutput {
+            logTextBlock(
+                kind: "raw-output",
+                stage: stage,
+                workID: workID,
+                generation: generation,
+                text: rawOutput
+            )
+        }
+
+        if let normalizedOutput {
+            logTextBlock(
+                kind: "normalized-output",
+                stage: stage,
+                workID: workID,
+                generation: generation,
+                text: normalizedOutput
+            )
+        }
     }
 
     private func logOverlay(_ stage: String, message: String, text: String? = nil, caretRect: CGRect? = nil) {
@@ -703,6 +761,27 @@ final class SuggestionDebugModel: ObservableObject {
 
         lastLoggedMessage = line
         print(line)
+    }
+
+    /// Compact one-line logs are good for scanning, but debugging prompts needs the exact payload.
+    /// We print full blocks here so you can compare Matcha's request with a manual curl byte-for-byte.
+    private func logTextBlock(
+        kind: String,
+        stage: String,
+        workID: UInt64,
+        generation: UInt64?,
+        text: String
+    ) {
+        let generationSummary = generation.map(String.init) ?? "n/a"
+        let renderedText = text.isEmpty ? "<empty>" : text
+        print(
+            """
+            [Suggestion \(kind)] stage=\(stage) work=\(workID) generation=\(generationSummary)
+            ----- BEGIN \(kind.uppercased()) -----
+            \(renderedText)
+            ----- END \(kind.uppercased()) -----
+            """
+        )
     }
 
     private func makeDebugPreview(_ text: String) -> String {
