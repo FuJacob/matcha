@@ -1,18 +1,22 @@
 # Tabby
 
+This repository contains the landing page for the Tabby product.
 
 <p align="center">
-<img width="128" alt="logo (2)" src="https://github.com/user-attachments/assets/8a67095e-4d03-4055-8d4c-8871335152dd" />
+	<img width="128" alt="Tabby logo" src="https://github.com/user-attachments/assets/8a67095e-4d03-4055-8d4c-8871335152dd" />
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
 </p>
-
 
 ## Video Demo
 
 [https://www.youtube.com/watch?v=CGduGREZtlI&t=176s](https://www.youtube.com/watch?v=CGduGREZtlI&t=176s)
+
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
 
 ## Hackathon Prompt
 
@@ -28,9 +32,13 @@ But in practice, switching to a separate app, starting a conversation, and getti
 
 **Well, how about AI dictation tools like Wispr Flow?**
 
-They seem better, but they depend on a quiet environment, and speaking often moves faster than my thoughts. When I’m trying to carefully shape a message, dictation can feel rushed rather than helpful.
+They seem better, but they depend on a quiet environment, and speaking often moves faster than my thoughts. When I am trying to carefully shape a message, dictation can feel rushed rather than helpful.
 
 **That led to an idea: what if we had inline AI autocomplete that works in any app.**
+
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
 
 ## Solution
 
@@ -42,6 +50,10 @@ Tabby is a menu bar app that adds local AI autocomplete to any text field you ar
 
 No browser hop. No copy/paste loop. No speaking out loud.
 
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
+
 ## Why This Gives Time Back
 
 Tabby saves time in the small moments that happen constantly:
@@ -52,6 +64,10 @@ Tabby saves time in the small moments that happen constantly:
 - keeping writing flow in one place, no need to move writing into a different editor
 
 A few seconds saved per message adds up quickly over a full day.
+
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
 
 ## How It Works (High Level)
 
@@ -67,6 +83,10 @@ A few seconds saved per message adds up quickly over a full day.
 - Suggestion flow is continuous: generate a tail, render ghost text at the caret, accept with Tab in chunks, and reject stale outputs when context changes.
 - Optional visual context pipeline: frontmost window screenshot -> OCR -> compact hint -> injected only as background context when enabled.
 
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
+
 ## Quick Demo Flow For Judges
 
 1. Open Tabby.
@@ -74,6 +94,10 @@ A few seconds saved per message adds up quickly over a full day.
 3. See ghost text suggestion.
 4. Press Tab to accept.
 5. Keep typing without leaving your app.
+
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
 
 ## Run Locally
 
@@ -89,12 +113,20 @@ CLI build:
 xcodebuild -project tabby.xcodeproj -scheme tabby -configuration Debug -sdk macosx build
 ```
 
-## What’s Next
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
+
+## What's Next
 
 - Improve compatibility across more macOS apps, since some editors still break focus detection or place ghost overlays in the wrong position.
 - Make generation faster by optimizing runtime settings and tightening prompt construction so suggestions arrive with lower latency.
 - Add memory persistence so Tabby can remember user writing patterns and useful context across sessions.
 - Add deeper personalization controls (tone, style, brevity, domain preferences) so suggestions feel tailored per user.
+
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
 
 ## Installation (DMG)
 
@@ -103,15 +135,20 @@ xcodebuild -project tabby.xcodeproj -scheme tabby -configuration Debug -sdk maco
 3. Drag `Tabby.app` into `Applications`.
 4. Open `Applications` and launch Tabby.
 5. Grant permissions when prompted:
-  - Accessibility (required)
-  - Input Monitoring (required)
-  - Screen Recording (optional, only for visual context features)
+   - Accessibility (required)
+   - Input Monitoring (required)
+   - Screen Recording (optional, only for visual context features)
 6. Download a model from the Welcome screen, or add your own `.gguf` into the model folder.
 7. If you manually add a model file, press **Refresh Model List** in Tabby.
 
 If macOS blocks launch on first open, use one of these:
+
 - Right click `Tabby.app` -> **Open**.
 - Or go to **System Settings -> Privacy & Security** and click **Open Anyway**.
+
+<p align="center">
+	<img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
 
 ## Local Development Setup (In Depth)
 
@@ -165,8 +202,8 @@ xcodebuild -project tabby.xcodeproj -scheme tabby -configuration Debug -sdk maco
 ### 6) Troubleshooting
 
 1. No suggestions appearing:
-  - Re-check Accessibility and Input Monitoring permissions.
+   - Re-check Accessibility and Input Monitoring permissions.
 2. Model missing in picker:
-  - Confirm file extension is `.gguf` and click **Refresh Model List**.
+   - Confirm file extension is `.gguf` and click **Refresh Model List**.
 3. Overlay placement issues in specific apps:
-  - Switch focus away and back, then retry typing.
+   - Switch focus away and back, then retry typing.
