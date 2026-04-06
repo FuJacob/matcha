@@ -1,8 +1,10 @@
 # Tabby
 
+
 <p align="center">
-  <img src="tabby/Assets.xcassets/AppIcon.appiconset/512.png" alt="Tabby logo" width="128" />
+<img width="128" alt="logo (2)" src="https://github.com/user-attachments/assets/8a67095e-4d03-4055-8d4c-8871335152dd" />
 </p>
+
 
 ## Video Demo
 
