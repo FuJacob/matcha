@@ -9,11 +9,18 @@ import SwiftUI
 /// SwiftUI knows when to redraw the menu bar item.
 struct MenuBarStatusLabelView: View {
     @ObservedObject var focusModel: FocusTrackingModel
+    @ObservedObject var suggestionCoordinator: SuggestionCoordinator
 
     /// Mirrors the latest focus support state into the menu-bar icon and label.
     var body: some View {
-        Image(systemName: "pawprint.fill")
-            .symbolRenderingMode(.monochrome)
-            .font(.system(size: 13, weight: .semibold))
+        HStack(alignment: .center, spacing: 4) {
+            Image(systemName: "pawprint.fill")
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 13, weight: .semibold))
+
+            Text("\(suggestionCoordinator.totalTabAcceptedWordCount)")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+        }
     }
 }

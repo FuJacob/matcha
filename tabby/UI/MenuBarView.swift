@@ -149,9 +149,16 @@ struct MenuBarView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
-            Image(systemName: focusModel.menuBarSymbolName)
-                .font(.title3)
-                .foregroundStyle(focusStatusColor)
+            HStack(alignment: .center, spacing: 6) {
+                Image(systemName: focusModel.menuBarSymbolName)
+                    .font(.title3)
+                    .foregroundStyle(focusStatusColor)
+
+                Text("\(suggestionCoordinator.totalTabAcceptedWordCount)")
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Tabby")

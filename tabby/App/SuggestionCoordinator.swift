@@ -29,6 +29,7 @@ final class SuggestionCoordinator: ObservableObject {
     @Published private(set) var latestGenerationNumber: UInt64?
     @Published private(set) var visualContextStatus: VisualContextStatus = .idle
     @Published private(set) var latestInjectedContextSummary: String?
+    @Published private(set) var totalTabAcceptedWordCount: Int = 0
     @Published private(set) var selectedWordCountPreset: SuggestionWordCountPreset = .threeToSeven
     @Published private(set) var selectedPromptMode: SuggestionPromptMode = .guided
 
@@ -45,6 +46,7 @@ final class SuggestionCoordinator: ObservableObject {
 
     private static let selectedWordCountPresetDefaultsKey = "selectedSuggestionWordCountPreset"
     private static let selectedPromptModeDefaultsKey = "selectedSuggestionPromptMode"
+    private static let totalTabAcceptedWordCountDefaultsKey = "totalTabAcceptedWordCount"
 
     private var cancellables = Set<AnyCancellable>()
     private var debounceTask: Task<Void, Never>?
@@ -91,6 +93,7 @@ final class SuggestionCoordinator: ObservableObject {
             .string(forKey: Self.selectedPromptModeDefaultsKey)
             .flatMap(SuggestionPromptMode.init(rawValue:))
         let resolvedPromptMode = storedPromptMode ?? configuration.defaultPromptMode
+        let storedTotalTabAcceptedWordCount = userDefaults.integer(forKey: Self.totalTabAcceptedWordCountDefaultsKey)
 
         self.permissionManager = permissionManager
         self.focusModel = focusModel
@@ -104,6 +107,7 @@ final class SuggestionCoordinator: ObservableObject {
         self.userDefaults = userDefaults
         selectedWordCountPreset = resolvedWordCountPreset
         selectedPromptMode = resolvedPromptMode
+        totalTabAcceptedWordCount = max(storedTotalTabAcceptedWordCount, 0)
 
         if storedWordCountPreset == nil {
             userDefaults.set(resolvedWordCountPreset.rawValue, forKey: Self.selectedWordCountPresetDefaultsKey)
@@ -1060,6 +1064,8 @@ final class SuggestionCoordinator: ObservableObject {
             return false
         }
 
+        recordAcceptedWords(from: acceptedChunk)
+
         cancelPredictionWork()
 
         let advancedSession = sessionForAcceptance.advancing(by: acceptedChunk.count)
@@ -1276,6 +1282,27 @@ final class SuggestionCoordinator: ObservableObject {
         }
 
         return String(remainingText[..<index])
+    }
+
+    /// Updates the global productivity counter from text accepted via Tab.
+    private func recordAcceptedWords(from acceptedChunk: String) {
+        let acceptedWordCount = acceptedWordCount(in: acceptedChunk)
+        guard acceptedWordCount > 0 else {
+            return
+        }
+
+        totalTabAcceptedWordCount += acceptedWordCount
+        userDefaults.set(totalTabAcceptedWordCount, forKey: Self.totalTabAcceptedWordCountDefaultsKey)
+    }
+
+    /// Counts word-like tokens (contains letters/digits) so punctuation-only chunks do not inflate totals.
+    private func acceptedWordCount(in text: String) -> Int {
+        text
+            .split(whereSeparator: { $0.isWhitespace })
+            .filter { token in
+                token.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) })
+            }
+            .count
     }
 
     private func overlayHideReason(for event: CapturedInputEvent) -> String {

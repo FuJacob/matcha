@@ -23,7 +23,8 @@ struct TabbyApp: App {
             )
         } label: {
             MenuBarStatusLabelView(
-                focusModel: appDelegate.focusModel
+                focusModel: appDelegate.focusModel,
+                suggestionCoordinator: appDelegate.suggestionCoordinator
             )
         }
         .menuBarExtraStyle(.window)
