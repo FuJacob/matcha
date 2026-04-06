@@ -378,9 +378,9 @@ final class SuggestionCoordinator: ObservableObject {
             return
         }
 
-        guard !rawContext.precedingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard shouldGenerateSuggestion(for: rawContext.precedingText) else {
             clearSuggestion()
-            hideOverlay(reason: "Overlay hidden because there is no text before the caret.")
+            hideOverlay(reason: "Overlay hidden because suggestions wait for a completed word boundary (space).")
             state = .idle
             return
         }
@@ -775,7 +775,7 @@ final class SuggestionCoordinator: ObservableObject {
         guard case .supported = snapshot.capability,
               let context = snapshot.context,
               context.elementIdentifier == elementIdentifier,
-              !context.precedingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              shouldGenerateSuggestion(for: context.precedingText)
         else {
             return
         }
@@ -820,15 +820,79 @@ final class SuggestionCoordinator: ObservableObject {
         from context: FocusedInputContext,
         injectedContextSummary: String?
     ) -> String {
-        let prefix = String(context.precedingText.suffix(configuration.maxPrefixCharacters))
-        var sections = [activeCompletionInstruction]
+        let prefix = truncatedPromptPrefix(from: context.precedingText)
+        var sections = [
+            "You are an inline autocomplete engine for one text field.",
+            "",
+            "Rules (highest priority):",
+            "Return exactly one continuation fragment.",
+            selectedWordCountPreset.promptInstruction,
+            "Continue only from Prefix.",
+            "Do not repeat Prefix text.",
+            "ScreenContextHints are background hints only; never restate or continue them.",
+            "No numbering, no bullets, no labels, no quotes, no markdown, no newline.",
+            "Output plain text only."
+        ]
 
-        if let injectedContextSummary, !injectedContextSummary.isEmpty {
-            sections.append("Relevant screen context: \(injectedContextSummary)")
+        if let screenContextHints = normalizedScreenContextHints(from: injectedContextSummary) {
+            sections.append("ScreenContextHints: \(screenContextHints)")
         }
 
-        sections.append(prefix)
+        sections.append("Prefix: \(prefix)")
+        sections.append("Continuation:")
         return sections.joined(separator: "\n")
+    }
+
+    /// Screen context should be metadata, not prose continuation, so we normalize it into one line.
+    private func normalizedScreenContextHints(from summary: String?) -> String? {
+        guard let summary else {
+            return nil
+        }
+
+        var normalized = summary
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\r", with: "")
+            .replacingOccurrences(of: "\\n+", with: ", ", options: .regularExpression)
+            .replacingOccurrences(
+                of: "^\\s*ScreenContextHints?\\s*:\\s*",
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: "\\s+,", with: ",", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ",.;:")))
+
+        if normalized.count > 160 {
+            normalized = String(normalized.prefix(160)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    /// Require completed word boundaries so prompts do not include half-typed trailing tokens.
+    private func shouldGenerateSuggestion(for precedingText: String) -> Bool {
+        let trimmed = precedingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+
+        guard let trailingScalar = precedingText.unicodeScalars.last else {
+            return false
+        }
+
+        return CharacterSet.whitespaces.contains(trailingScalar)
+    }
+
+    /// Keep only the latest short word tail to prevent long stale context from steering output.
+    private func truncatedPromptPrefix(from precedingText: String) -> String {
+        let characterWindow = String(precedingText.suffix(configuration.maxPrefixCharacters))
+        let trailingWords = characterWindow
+            .split(whereSeparator: { $0.isWhitespace })
+            .suffix(configuration.maxPrefixWords)
+            .map(String.init)
+            .joined(separator: " ")
+
+        return trailingWords.isEmpty ? characterWindow : trailingWords
     }
     
     

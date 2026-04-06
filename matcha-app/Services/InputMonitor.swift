@@ -24,7 +24,9 @@ struct CapturedInputEvent: Equatable {
 
     var shouldSchedulePrediction: Bool {
         switch kind {
-        case .textMutation, .shortcutMutation:
+        case .textMutation:
+            return keyCode == 49 || characters.hasTrailingSpaceBoundary
+        case .shortcutMutation:
             return true
         default:
             return false
@@ -220,5 +222,16 @@ private extension CGEvent {
 
         keyboardGetUnicodeString(maxStringLength: length, actualStringLength: &length, unicodeString: buffer)
         return String(utf16CodeUnits: buffer, count: length)
+    }
+}
+
+private extension String {
+    /// Space-delimited triggering avoids sampling half-typed words like "I w".
+    var hasTrailingSpaceBoundary: Bool {
+        guard let lastScalar = unicodeScalars.last else {
+            return false
+        }
+
+        return CharacterSet.whitespaces.contains(lastScalar)
     }
 }

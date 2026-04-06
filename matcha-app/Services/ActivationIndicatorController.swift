@@ -154,7 +154,7 @@ private enum ActivationIndicatorMode: Equatable {
         case .capturing:
             return "camera.fill"
         case .extractingText:
-            return "text.magnifyingglass"
+            return "magnifyingglass"
         case .summarizing:
             return "wand.and.stars"
         case .unavailable:

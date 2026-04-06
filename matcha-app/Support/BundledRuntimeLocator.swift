@@ -181,12 +181,10 @@ struct BundledRuntimeLocator {
             orderedModels.append(modelOption)
         }
 
-        let alphabeticalFallbacks = modelOptionsByFilename.values.sorted {
-            $0.filename.localizedCaseInsensitiveCompare($1.filename) == .orderedAscending
-        }
-
-        for modelOption in alphabeticalFallbacks where seenFilenames.insert(modelOption.filename).inserted {
-            orderedModels.append(modelOption)
+        // Intentionally no alphabetical fallback here: the preferred list is treated as the
+        // explicit allowlist for models that should be visible/selectable in-app.
+        if orderedModels.isEmpty {
+            throw BundledRuntimeLocatorError.modelMissing(candidate.modelDirectoryURL.path)
         }
 
         return orderedModels

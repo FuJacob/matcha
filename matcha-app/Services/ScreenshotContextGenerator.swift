@@ -165,13 +165,14 @@ final class ScreenshotContextGenerator {
         return sections.joined(separator: "\n\n")
     }
 
-    /// Keep the summarization prompt intentionally simple. The OCR text is already capped,
-    /// so we ask for one sentence without additional instruction scaffolding.
+    /// We ask for exactly one short hint so prompt injection stays minimal and stable.
     private func buildSummaryPrompt(recognizedText: String) -> String {
         [
-            "Summarize the visible work context on the screen in one sentence.",
+            "Extract exactly one short ScreenContextHint from the visible work context.",
+            "Return only one word when possible (examples: Email, Messages, Notes, Discord).",
+            "Do not return a sentence or a list.",
             recognizedText,
-            "One-sentence summary:"
+            "ScreenContextHint:"
         ].joined(separator: "\n\n")
     }
 
@@ -179,14 +180,14 @@ final class ScreenshotContextGenerator {
     /// debris here so prompt injection does not inherit formatting noise.
     private func normalizeSummary(_ rawSummary: String) -> String {
         var normalized = rawSummary.replacingOccurrences(of: "\r", with: "")
-
-        if let firstLine = normalized.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first {
-            normalized = String(firstLine)
-        }
-
         normalized = normalized
             .trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`-:"))
+            .replacingOccurrences(
+                of: "^\\s*ScreenContextHints?\\s*:\\s*",
+                with: "",
+                options: .regularExpression
+            )
 
         // Instruction-tuned models often prefix summaries with list markers like "1." or "-".
         // Strip those so injected context stays stylistically neutral for inline completion.
@@ -196,23 +197,32 @@ final class ScreenshotContextGenerator {
             options: .regularExpression
         )
 
-        // Keep exactly one sentence if punctuation is present; this avoids multi-clause style bleed.
-        if let firstSentenceRange = normalized.range(
-            of: "^[^.!?]*[.!?]",
+        normalized = normalized.replacingOccurrences(
+            of: "(?m)^\\s*(?:\\d+[.)]|[-*•])\\s*",
+            with: "",
             options: .regularExpression
-        ) {
-            normalized = String(normalized[firstSentenceRange])
-        }
+        )
 
-        if normalized.count > 140 {
-            normalized = String(normalized.prefix(140)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        normalized = normalized.replacingOccurrences(of: "\\n+", with: " ", options: .regularExpression)
 
-        if !hasUsefulSummarySignal(normalized) {
+        let firstSegment = normalized
+            .components(separatedBy: CharacterSet(charactersIn: ",;|"))
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'`-:.")))
+            }
+            .first { !$0.isEmpty } ?? ""
+
+        let hintToken = firstSegment
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .first { hasUsefulSummarySignal($0) } ?? ""
+
+        guard !hintToken.isEmpty else {
             return ""
         }
 
-        return normalized
+        let clampedHint = String(hintToken.prefix(24))
+        let capitalizedHint = clampedHint.prefix(1).uppercased() + clampedHint.dropFirst()
+        return capitalizedHint
     }
 
     /// We reject summaries that are mostly punctuation or numeric noise because those would hurt
@@ -229,7 +239,7 @@ final class ScreenshotContextGenerator {
 
     private func hasUsefulSummarySignal(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 6 else {
+        guard trimmed.count >= 3 else {
             return false
         }
 

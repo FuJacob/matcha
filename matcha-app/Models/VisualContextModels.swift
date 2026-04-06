@@ -27,7 +27,7 @@ struct VisualContextConfiguration: Equatable, Sendable {
         // Keep screenshot prompts comfortably under the runtime batch decode ceiling.
         maxRecognizedCharacters: 600,
         maxSummaryTokens: 20,
-        temperature: 0.2,
+        temperature: 0.07,
         topK: 40,
         topP: 0.8,
         minP: 0.05,

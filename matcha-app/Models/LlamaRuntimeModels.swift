@@ -44,16 +44,14 @@ struct LlamaRuntimeConfiguration: Equatable, Sendable {
     let gpuLayerCount: Int32
 
     /// Order matters here: the locator picks the first GGUF that exists.
-    /// Keeping fallbacks behind the preferred model makes the startup path deterministic.
+    /// This list is an explicit allowlist for models exposed by Matcha.
     static let `default` = LlamaRuntimeConfiguration(
         runtimeDirectoryPath: nil,
         preferredModelNames: [
+            "Qwen3.5-9B-Q4_K_M.gguf",
+            "ministral-3-8b-base-2512-q4_k_m.gguf",
             "Qwen3.5-2B-Q4_K_M.gguf",
             "Llama-3.2-3B.Q4_K_M.gguf",
-            "Qwen3-1.7B.i1-Q4_K_M.gguf",
-            "Qwen3.5-0.8B-Q3_K_M.gguf",
-            "qwen2-0_5b-instruct-q2_k.gguf",
-            "qwen2-0_5b-instruct-q3_k_m.gguf",
         ],
         contextWindowTokens: 2048,
         batchSize: 512,

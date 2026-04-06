@@ -59,6 +59,7 @@ struct SuggestionConfiguration: Equatable, Sendable {
     let topP: Double
     let minP: Double
     let repetitionPenalty: Double
+    let maxPrefixWords: Int
     let maxPrefixCharacters: Int
     let maxSuffixCharacters: Int
     let customAIInstructions: String
@@ -71,11 +72,12 @@ struct SuggestionConfiguration: Equatable, Sendable {
         // within a single frame. A more conservative delay improves prompt freshness.
         debounceMilliseconds: 180,
         // Match the working ollama cURL parameters
-        temperature: 0.15,
+        temperature: 0.1,
         topK: 40,
         topP: 0.75,
         minP: 0.05,
         repetitionPenalty: 1.15,
+        maxPrefixWords: 5,
         // Prompt windows should stay small. Sending an entire Xcode buffer kills latency for no gain.
         maxPrefixCharacters: 192,
         maxSuffixCharacters: 192,
