@@ -52,6 +52,10 @@ final class SuggestionCoordinator: ObservableObject {
     private var lastLoggedMessage: String?
     private var activeSession: ActiveSuggestionSession?
     private var activeAugmentationSession: FocusedInputAugmentationSession?
+    /// After Tab inserts a chunk, AX may not reflect the new text for one or more poll cycles.
+    /// This sentinel records the consumed count we just committed so reconcile() does not
+    /// misinterpret the stale AX state as an undo and drop the session.
+    private var pendingInsertionConsumedCount: Int?
     private let consoleStages: Set<String> = [
         "generating",
         "ready",
@@ -636,6 +640,7 @@ final class SuggestionCoordinator: ObservableObject {
         latestAcceptanceAction = nil
         latestLatencyMilliseconds = nil
         activeSession = nil
+        pendingInsertionConsumedCount = nil
 
         if clearDiagnostics {
             latestRequestPreview = nil
@@ -934,8 +939,11 @@ final class SuggestionCoordinator: ObservableObject {
 
         let advancedSession = sessionForAcceptance.advancing(by: acceptedChunk.count)
         latestGenerationNumber = liveContext.generation
+        // Arm the sentinel so reconcile() tolerates stale AX state for the next poll cycle.
+        pendingInsertionConsumedCount = advancedSession.consumedCharacterCount
 
         if advancedSession.isExhausted {
+            pendingInsertionConsumedCount = nil
             clearSuggestion(clearDiagnostics: false)
             hideOverlay(reason: "Overlay hidden because Tab accepted the final suggestion chunk.")
             latestAcceptanceAction = "Accepted final chunk with Tab."
@@ -954,7 +962,12 @@ final class SuggestionCoordinator: ObservableObject {
         activeSession = advancedSession
         applySessionDiagnostics(advancedSession, acceptanceAction: "Accepted next chunk with Tab.")
         state = .ready(text: advancedSession.remainingText, latency: advancedSession.latency)
-        hideOverlay(reason: "Overlay hidden while waiting for the host app to report the new caret position.")
+        // Optimistic overlay: show the remaining suggestion text immediately at the last known
+        // caret position instead of hiding and waiting for AX to report the new caret. The overlay
+        // position will be slightly stale (by roughly the inserted chunk width) for one poll cycle,
+        // then snap to the correct position when AX catches up. This eliminates the flash where
+        // ghost text disappears and reappears between Tab presses.
+        presentOverlay(text: advancedSession.remainingText, at: liveContext.caretRect)
         logStage(
             "tab-accepted-chunk",
             workID: latestWorkID,
@@ -1010,7 +1023,7 @@ final class SuggestionCoordinator: ObservableObject {
         }
 
         state = .ready(text: advancedSession.remainingText, latency: advancedSession.latency)
-        hideOverlay(reason: "Overlay hidden while waiting for the host app to report the new caret position.")
+        presentOverlay(text: advancedSession.remainingText, at: session.baseContext.caretRect)
         logStage(
             "typed-match-advanced",
             workID: latestWorkID,
@@ -1080,10 +1093,24 @@ final class SuggestionCoordinator: ObservableObject {
 
         let consumedSuffix = String(liveContext.precedingText.dropFirst(session.baseContext.precedingText.count))
         guard session.fullText.hasPrefix(consumedSuffix) else {
+            // If we just inserted via Tab, AX may still show stale text. Trust the sentinel
+            // for one reconciliation cycle instead of invalidating the whole session.
+            if let pending = pendingInsertionConsumedCount, pending == session.consumedCharacterCount {
+                return .valid(session, advancement: nil)
+            }
             return .invalid("Overlay hidden because typed text diverged from the active suggestion.")
         }
 
+        // AX caught up (or never lagged) — clear the sentinel.
+        if pendingInsertionConsumedCount != nil, consumedSuffix.count >= session.consumedCharacterCount {
+            pendingInsertionConsumedCount = nil
+        }
+
         guard consumedSuffix.count >= session.consumedCharacterCount else {
+            // Same AX lag protection: if we just Tab-inserted, the preceding text hasn't updated yet.
+            if let pending = pendingInsertionConsumedCount, pending == session.consumedCharacterCount {
+                return .valid(session, advancement: nil)
+            }
             return .invalid("Overlay hidden because the active suggestion was partially undone.")
         }
 

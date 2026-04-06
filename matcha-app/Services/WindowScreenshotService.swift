@@ -120,6 +120,6 @@ struct WindowScreenshotService {
     }
 
     private func log(_ message: String) {
-        print("[VisualContext] \(message)")
+        _ = message
     }
 }

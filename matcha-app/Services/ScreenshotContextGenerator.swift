@@ -115,12 +115,7 @@ final class ScreenshotContextGenerator {
             recognizedText: recognizedText
         )
 
-        let prompt = buildSummaryPrompt(
-            appName: context.applicationName,
-            windowTitle: screenshot.windowTitle,
-            recognizedText: sourceText,
-            typedPrefix: String(context.precedingText.suffix(80))
-        )
+        let prompt = buildSummaryPrompt(recognizedText: sourceText)
 
         await onStatusChange?(.generatingSummary)
 
@@ -170,29 +165,14 @@ final class ScreenshotContextGenerator {
         return sections.joined(separator: "\n\n")
     }
 
-    /// This prompt asks the loaded model for a small semantic hint, not a continuation.
-    /// That is why the prompt is explicit and instructive here even though inline completion
-    /// prompts elsewhere in the app are intentionally more minimal.
-    private func buildSummaryPrompt(
-        appName: String,
-        windowTitle: String?,
-        recognizedText: String,
-        typedPrefix: String
-    ) -> String {
+    /// Keep the summarization prompt intentionally simple. The OCR text is already capped,
+    /// so we ask for one sentence without additional instruction scaffolding.
+    private func buildSummaryPrompt(recognizedText: String) -> String {
         [
-            "Summarize the visible work context for inline autocomplete.",
-            "Rules:",
-            "- Respond with exactly one sentence between 8 and 14 words.",
-            "- Use plain sentence form; no numbering, bullets, labels, or fragments.",
-            "- Describe what the user is working on, not how to respond.",
-            "- Do not continue the typed text.",
-            "- Do not use quotes or bullet points.",
-            "Application: \(appName)",
-            windowTitle.map { "Window title: \($0)" } ?? "Window title: Unknown",
-            typedPrefix.isEmpty ? "Typed text: <empty>" : "Typed text: \(typedPrefix)",
+            "Summarize the visible work context on the screen in one sentence.",
             recognizedText,
-            "Context hint:"
-        ].joined(separator: "\n")
+            "One-sentence summary:"
+        ].joined(separator: "\n\n")
     }
 
     /// Screenshot summaries should be compact and stable. We strip common instruction-model
@@ -258,7 +238,7 @@ final class ScreenshotContextGenerator {
     }
 
     private func log(_ message: String) {
-        print("[VisualContext] \(message)")
+        _ = message
     }
 
     private func preview(_ text: String) -> String {

@@ -379,17 +379,7 @@ final class FocusTracker {
                 bundleIdentifier: bundleIdentifier,
                 isTextRect: true
             )
-            print("[\(bundleIdentifier)] resolveCaretRect: Branch 1 (Zero-length range)")
-            print("  Raw rect: \(rect)")
-            print("  Cocoa rect: \(cocoaRect)")
-            
             let normalized = normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
-            print("  Returned rect: \(normalized)")
-            
-            if cocoaRect.width > 10 {
-                print("  ⚠️ WARNING: Zero-length range returned a wide rect. This is likely a text block/fragment, not a caret.")
-            }
-            
             return normalized
         }
 
@@ -402,12 +392,7 @@ final class FocusTracker {
                 bundleIdentifier: bundleIdentifier,
                 isTextRect: true
             )
-            print("[\(bundleIdentifier)] resolveCaretRect: Branch 1.5 (AXTextMarker)")
-            print("  Raw Marker Rect: \(markerRect)")
-            print("  Cocoa Marker Rect: \(cocoaRect)")
-            
             let normalized = normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
-            print("  Returned rect: \(normalized)")
             return normalized
         }
 
@@ -419,31 +404,14 @@ final class FocusTracker {
                on: element
            ), !rect.isEmpty {
             let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: rect, bundleIdentifier: bundleIdentifier, isTextRect: true)
-            print("[\(bundleIdentifier)] resolveCaretRect: Branch 2 (Previous character)")
-            print("  Raw rect: \(rect)")
-            print("  Cocoa rect: \(cocoaRect)")
-            
             let returnedRect = CGRect(x: cocoaRect.maxX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
-            print("  Returned rect: \(returnedRect)")
-            
-            if cocoaRect.width > 30 { // A single character shouldn't be very wide
-                print("  ⚠️ WARNING: Previous character returned a very wide rect. This is likely taking the whole element frame, causing maxX to overshoot.")
-            }
-            
             return returnedRect
         }
-
-        print("[\(bundleIdentifier)] resolveCaretRect: supportsBoundsForRange was \(supportsBoundsForRange)")
 
         if supportsFrame,
            let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty {
             let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: frame, bundleIdentifier: bundleIdentifier, isTextRect: false)
-            print("[\(bundleIdentifier)] resolveCaretRect: Branch 3 (AXFrame fallback)")
-            print("  Raw AXFrame: \(frame)")
-            print("  Cocoa rect: \(cocoaRect)")
-            
             if cocoaRect.width > 10 {
-                print("  ⚠️ WARNING: AXFrame fallback used. This returns the whole element frame and will likely push the overlay to the far right edge.")
                 // Attempt an estimation based on string length if we know it
                 if let text = textValue {
                     let prefix = (text as NSString).substring(to: min(selection.location, (text as NSString).length))
@@ -454,16 +422,12 @@ final class FocusTracker {
                     let clampedX = min(estimatedX, cocoaRect.maxX)
                     
                     let fakeCaret = CGRect(x: clampedX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
-                    print("  ✨ Attempted String Estimation for \(text.count) chars, prefix \(prefix.count) chars.")
-                    print("  ✨ Fake Caret Rect mapped: \(fakeCaret)")
                     return fakeCaret
                 }
             }
             
             return cocoaRect
         }
-
-        print("[\(bundleIdentifier)] resolveCaretRect: Failed all fallback branches (returned nil)")
         return nil
     }
 

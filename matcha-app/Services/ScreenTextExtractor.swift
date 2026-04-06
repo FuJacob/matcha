@@ -143,7 +143,7 @@ struct ScreenTextExtractor {
     }
 
     private func log(_ message: String) {
-        print("[VisualContext] \(message)")
+        _ = message
     }
 
     private func preview(_ text: String) -> String {
