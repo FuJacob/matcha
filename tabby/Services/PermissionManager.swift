@@ -4,7 +4,7 @@ import Combine
 import CoreGraphics
 
 /// File overview:
-/// Polls and exposes the three system permissions Matcha depends on: Accessibility for reading
+/// Polls and exposes the three system permissions Tabby depends on: Accessibility for reading
 /// focus state, Input Monitoring for global key capture, and Screen Recording for screenshot-
 /// derived prompt context.
 ///

@@ -6,7 +6,7 @@ import Foundation
 /// uses a pragmatic pipeline: frontmost-window screenshot -> OCR -> same loaded local LLM summary.
 ///
 /// This keeps the feature shippable with the current text-only runtime while preserving the shape
-/// of a future direct multimodal implementation. If Matcha later gains true image-token support,
+/// of a future direct multimodal implementation. If Tabby later gains true image-token support,
 /// this file is where the OCR stage can be replaced.
 
 enum ScreenshotContextGenerationError: LocalizedError {

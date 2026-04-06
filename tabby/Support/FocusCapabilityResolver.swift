@@ -2,9 +2,9 @@ import Foundation
 
 /// File overview:
 /// Scores nearby AX candidates and decides which one, if any, is the best editable target
-/// for Matcha. This keeps heuristic choice separate from raw AX crawling in `FocusTracker`.
+/// for Tabby. This keeps heuristic choice separate from raw AX crawling in `FocusTracker`.
 ///
-/// One nearby AX node scored by whether it exposes the capabilities Matcha needs.
+/// One nearby AX node scored by whether it exposes the capabilities Tabby needs.
 struct FocusCapabilityCandidate: Equatable {
     let elementIdentifier: String
     let role: String

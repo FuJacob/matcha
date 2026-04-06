@@ -30,6 +30,7 @@ final class SuggestionCoordinator: ObservableObject {
     @Published private(set) var visualContextStatus: VisualContextStatus = .idle
     @Published private(set) var latestInjectedContextSummary: String?
     @Published private(set) var selectedWordCountPreset: SuggestionWordCountPreset = .threeToSeven
+    @Published private(set) var selectedPromptMode: SuggestionPromptMode = .guided
 
     private let permissionManager: PermissionManager
     private let focusModel: FocusTrackingModel
@@ -43,6 +44,7 @@ final class SuggestionCoordinator: ObservableObject {
     private let userDefaults: UserDefaults
 
     private static let selectedWordCountPresetDefaultsKey = "selectedSuggestionWordCountPreset"
+    private static let selectedPromptModeDefaultsKey = "selectedSuggestionPromptMode"
 
     private var cancellables = Set<AnyCancellable>()
     private var debounceTask: Task<Void, Never>?
@@ -85,6 +87,10 @@ final class SuggestionCoordinator: ObservableObject {
             .string(forKey: Self.selectedWordCountPresetDefaultsKey)
             .flatMap(SuggestionWordCountPreset.init(rawValue:))
         let resolvedWordCountPreset = storedWordCountPreset ?? configuration.defaultWordCountPreset
+        let storedPromptMode = userDefaults
+            .string(forKey: Self.selectedPromptModeDefaultsKey)
+            .flatMap(SuggestionPromptMode.init(rawValue:))
+        let resolvedPromptMode = storedPromptMode ?? configuration.defaultPromptMode
 
         self.permissionManager = permissionManager
         self.focusModel = focusModel
@@ -97,9 +103,14 @@ final class SuggestionCoordinator: ObservableObject {
         self.configuration = configuration
         self.userDefaults = userDefaults
         selectedWordCountPreset = resolvedWordCountPreset
+        selectedPromptMode = resolvedPromptMode
 
         if storedWordCountPreset == nil {
             userDefaults.set(resolvedWordCountPreset.rawValue, forKey: Self.selectedWordCountPresetDefaultsKey)
+        }
+
+        if storedPromptMode == nil {
+            userDefaults.set(resolvedPromptMode.rawValue, forKey: Self.selectedPromptModeDefaultsKey)
         }
 
         overlayState = overlayController.state
@@ -145,7 +156,7 @@ final class SuggestionCoordinator: ObservableObject {
     func stop() {
         cancelPredictionWork()
         cancelVisualContextWork(resetState: true)
-        hideOverlay(reason: "Overlay hidden because Matcha stopped observing suggestions.")
+        hideOverlay(reason: "Overlay hidden because Tabby stopped observing suggestions.")
         inputMonitor.onEvent = nil
         inputMonitor.onSuppressedSyntheticInput = nil
         overlayController.onStateChange = nil
@@ -185,6 +196,38 @@ final class SuggestionCoordinator: ObservableObject {
         }
     }
 
+    /// Switches prompt strategy between guided and strict prefix-only generation.
+    func selectPromptMode(_ mode: SuggestionPromptMode) {
+        guard selectedPromptMode != mode else {
+            return
+        }
+
+        selectedPromptMode = mode
+        userDefaults.set(mode.rawValue, forKey: Self.selectedPromptModeDefaultsKey)
+
+        cancelPredictionWork()
+        clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: "Overlay hidden because prompt mode changed.")
+        state = .idle
+        latestStageMessage = "Updated prompt mode to \(mode.displayLabel)."
+
+        if mode.usesVisualContext {
+            if case .supported = focusModel.snapshot.capability,
+               let focusedContext = focusModel.snapshot.context
+            {
+                startVisualContextSessionIfNeeded(for: focusedContext)
+            }
+        } else {
+            cancelVisualContextWork(resetState: true)
+        }
+
+        if permissionManager.inputMonitoringGranted,
+           case .supported = focusModel.snapshot.capability
+        {
+            schedulePrediction()
+        }
+    }
+
     private func handlePermissionChange() {
         if !permissionManager.screenRecordingGranted {
             cancelVisualContextWork(resetState: true)
@@ -201,7 +244,7 @@ final class SuggestionCoordinator: ObservableObject {
 
     private func handleFocusSnapshotChange(_ snapshot: FocusSnapshot) {
         guard permissionManager.inputMonitoringGranted else {
-            disablePredictions(reason: "Input Monitoring permission is required before Matcha can react to typing.")
+            disablePredictions(reason: "Input Monitoring permission is required before Tabby can react to typing.")
             return
         }
 
@@ -220,7 +263,11 @@ final class SuggestionCoordinator: ObservableObject {
             return
         }
 
-        startVisualContextSessionIfNeeded(for: focusedContext)
+        if selectedPromptMode.usesVisualContext {
+            startVisualContextSessionIfNeeded(for: focusedContext)
+        } else if visualContextStatus != .idle {
+            cancelVisualContextWork(resetState: true)
+        }
 
         if case .disabled = state {
             state = .idle
@@ -246,7 +293,7 @@ final class SuggestionCoordinator: ObservableObject {
 
     private func handleInputEvent(_ event: CapturedInputEvent) -> Bool {
         guard permissionManager.inputMonitoringGranted else {
-            disablePredictions(reason: "Input Monitoring permission is required before Matcha can react to typing.")
+            disablePredictions(reason: "Input Monitoring permission is required before Tabby can react to typing.")
             return false
         }
 
@@ -279,7 +326,7 @@ final class SuggestionCoordinator: ObservableObject {
             "suppressed-synthetic-input",
             workID: latestWorkID,
             generation: latestGenerationNumber,
-            message: "Ignored Matcha's own synthetic key event."
+            message: "Ignored Tabby's own synthetic key event."
         )
     }
 
@@ -369,7 +416,7 @@ final class SuggestionCoordinator: ObservableObject {
         let snapshot = focusModel.snapshot
 
         guard permissionManager.inputMonitoringGranted else {
-            disablePredictions(reason: "Input Monitoring permission is required before Matcha can react to typing.")
+            disablePredictions(reason: "Input Monitoring permission is required before Tabby can react to typing.")
             return
         }
 
@@ -386,7 +433,7 @@ final class SuggestionCoordinator: ObservableObject {
         }
 
         let context = contextBuffer.materialize(from: rawContext)
-        let injectedContextSummary = injectedContextSummary(for: context)
+        let injectedContextSummary = selectedPromptMode.usesVisualContext ? injectedContextSummary(for: context) : nil
         let prompt = buildPrompt(from: context, injectedContextSummary: injectedContextSummary)
         let requestPreview = buildRequestPreview(hasInjectedContext: injectedContextSummary != nil)
         latestGenerationNumber = context.generation
@@ -455,7 +502,7 @@ final class SuggestionCoordinator: ObservableObject {
         let snapshot = focusModel.snapshot
 
         guard permissionManager.inputMonitoringGranted else {
-            disablePredictions(reason: "Input Monitoring permission is required before Matcha can react to typing.")
+            disablePredictions(reason: "Input Monitoring permission is required before Tabby can react to typing.")
             return
         }
 
@@ -552,7 +599,7 @@ final class SuggestionCoordinator: ObservableObject {
     /// Recomputes whether prediction should be enabled based on current permissions and focus support.
     private func reconcileWithCurrentEnvironment() {
         guard permissionManager.inputMonitoringGranted else {
-            disablePredictions(reason: "Input Monitoring permission is required before Matcha can react to typing.")
+            disablePredictions(reason: "Input Monitoring permission is required before Tabby can react to typing.")
             return
         }
 
@@ -821,6 +868,12 @@ final class SuggestionCoordinator: ObservableObject {
         injectedContextSummary: String?
     ) -> String {
         let prefix = truncatedPromptPrefix(from: context.precedingText)
+
+        if selectedPromptMode == .prefixOnly {
+            // Prefix-only mode intentionally sends no system instructions or extra context.
+            return prefix
+        }
+
         var sections = [
             "You are an inline autocomplete engine for one text field.",
             "",
@@ -903,18 +956,26 @@ final class SuggestionCoordinator: ObservableObject {
 
     /// Produces a compact operator-facing summary of the current generation configuration.
     private func buildRequestPreview(hasInjectedContext: Bool) -> String {
-        """
+        let screenshotContextSummary: String
+        if selectedPromptMode.usesVisualContext {
+            screenshotContextSummary = hasInjectedContext ? "ready" : visualContextStatus.shortLabel.lowercased()
+        } else {
+            screenshotContextSummary = "disabled"
+        }
+
+        return """
         Backend: llama.swift
         transport: in-process
         suggestion_words: \(selectedWordCountPreset.displayLabel)
+        prompt_mode: \(selectedPromptMode.displayLabel)
         n_predict: \(activeMaxPredictionTokens)
         temperature: \(configuration.temperature)
         top_k: \(configuration.topK)
         top_p: \(configuration.topP)
         min_p: \(configuration.minP)
         repetition_penalty: \(configuration.repetitionPenalty)
-        prompt_style: raw prefix completion
-        screenshot_context: \(hasInjectedContext ? "ready" : visualContextStatus.shortLabel.lowercased())
+        prompt_style: \(selectedPromptMode == .prefixOnly ? "prefix-only" : "guided")
+        screenshot_context: \(screenshotContextSummary)
         stop: first line only
         """
     }
@@ -933,7 +994,7 @@ final class SuggestionCoordinator: ObservableObject {
         let snapshot = focusModel.snapshot
 
         guard permissionManager.inputMonitoringGranted else {
-            return passTabThrough(reason: "Input Monitoring permission is required before Matcha can accept Tab.")
+            return passTabThrough(reason: "Input Monitoring permission is required before Tabby can accept Tab.")
         }
 
         guard case .supported = snapshot.capability, let rawContext = snapshot.context else {
@@ -1364,7 +1425,7 @@ final class SuggestionCoordinator: ObservableObject {
     }
 
     /// Compact one-line logs are good for scanning, but debugging prompts needs the exact payload.
-    /// We print full blocks here so you can compare Matcha's request with a manual curl byte-for-byte.
+    /// We print full blocks here so you can compare Tabby's request with a manual curl byte-for-byte.
     private func logTextBlock(
         kind: String,
         stage: String,

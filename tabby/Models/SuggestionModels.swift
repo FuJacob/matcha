@@ -51,6 +51,33 @@ enum SuggestionWordCountPreset: String, CaseIterable, Equatable, Hashable, Senda
     }
 }
 
+/// Prompt construction strategy for inline completion.
+/// `guided` uses explicit rules and optional screenshot context; `prefixOnly` sends only prefix text.
+enum SuggestionPromptMode: String, CaseIterable, Equatable, Hashable, Sendable, Identifiable {
+    case guided
+    case prefixOnly
+
+    var id: String { rawValue }
+
+    var displayLabel: String {
+        switch self {
+        case .guided:
+            return "Guided"
+        case .prefixOnly:
+            return "Prefix Only"
+        }
+    }
+
+    var usesVisualContext: Bool {
+        switch self {
+        case .guided:
+            return true
+        case .prefixOnly:
+            return false
+        }
+    }
+}
+
 struct SuggestionConfiguration: Equatable, Sendable {
     let maxPredictionTokens: Int
     let debounceMilliseconds: Int
@@ -64,6 +91,7 @@ struct SuggestionConfiguration: Equatable, Sendable {
     let maxSuffixCharacters: Int
     let customAIInstructions: String
     let defaultWordCountPreset: SuggestionWordCountPreset
+    let defaultPromptMode: SuggestionPromptMode
 
     static let debugDefaults = SuggestionConfiguration(
         // Simple fast inline completion prediction size
@@ -82,7 +110,8 @@ struct SuggestionConfiguration: Equatable, Sendable {
         maxPrefixCharacters: 192,
         maxSuffixCharacters: 192,
         customAIInstructions: "Continue the text naturally in the same tone and context.",
-        defaultWordCountPreset: .threeToSeven
+        defaultWordCountPreset: .threeToSeven,
+        defaultPromptMode: .guided
     )
 }
 
@@ -268,7 +297,7 @@ enum SuggestionDebugState: Equatable {
         case .generating:
             return "Requesting a completion from the local runtime."
         case .ready:
-            return "Ready means Matcha has buffered a non-empty normalized completion for this field and can render it as ghost text."
+            return "Ready means Tabby has buffered a non-empty normalized completion for this field and can render it as ghost text."
         }
     }
 }

@@ -3,7 +3,7 @@ import Foundation
 
 /// File overview:
 /// Owns the global keyboard event tap used to detect typing, navigation, dismissal keys,
-/// and `Tab` acceptance. This is the boundary between raw CGEvents and Matcha's smaller
+/// and `Tab` acceptance. This is the boundary between raw CGEvents and Tabby's smaller
 /// input-event vocabulary.
 ///
 /// Only the event categories needed for typing-triggered prediction are modeled here.
@@ -44,7 +44,7 @@ struct CapturedInputEvent: Equatable {
 }
 
 /// Installs a session event tap.
-/// We still observe normal typing, but we can now consume `Tab` when Matcha has a valid suggestion.
+/// We still observe normal typing, but we can now consume `Tab` when Tabby has a valid suggestion.
 @MainActor
 final class InputMonitor {
     var onEvent: ((CapturedInputEvent) -> Bool)?

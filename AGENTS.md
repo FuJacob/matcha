@@ -1,4 +1,4 @@
-# Matcha App Collaboration Rules
+# Tabby App Collaboration Rules
 
 ## Learning-first expectation
 

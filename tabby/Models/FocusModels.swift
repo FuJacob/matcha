@@ -3,9 +3,9 @@ import Foundation
 
 /// File overview:
 /// Pure data models for focused-input state, AX capability support, and stale-result signatures.
-/// These types let the rest of Matcha reason about focus without depending on raw Accessibility values.
+/// These types let the rest of Tabby reason about focus without depending on raw Accessibility values.
 ///
-/// These are the concrete Accessibility capabilities Matcha needs before it can safely assist a field.
+/// These are the concrete Accessibility capabilities Tabby needs before it can safely assist a field.
 /// The key lesson is that "editable role" is not enough; we care about operational capability.
 enum FocusCapabilityRequirement: String, CaseIterable, Equatable {
     case textValue
@@ -33,7 +33,7 @@ enum FocusCapabilityRequirement: String, CaseIterable, Equatable {
 
 /// Distinguishes "unsupported" from "blocked".
 /// Unsupported means the host does not expose enough AX data.
-/// Blocked means Matcha intentionally refuses to operate, for example in secure fields.
+/// Blocked means Tabby intentionally refuses to operate, for example in secure fields.
 enum FocusCapability: Equatable {
     case supported
     case blocked(String)

@@ -11,13 +11,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		193741492F81DE7000BEC04F /* matcha-app.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "matcha-app.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		193741492F81DE7000BEC04F /* tabby.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "tabby.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		1937414B2F81DE7000BEC04F /* matcha-app */ = {
+		1937414B2F81DE7000BEC04F /* tabby */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "matcha-app";
+			path = "tabby";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -37,7 +37,7 @@
 		193741402F81DE7000BEC04F = {
 			isa = PBXGroup;
 			children = (
-				1937414B2F81DE7000BEC04F /* matcha-app */,
+				1937414B2F81DE7000BEC04F /* tabby */,
 				1937414A2F81DE7000BEC04F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -45,7 +45,7 @@
 		1937414A2F81DE7000BEC04F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				193741492F81DE7000BEC04F /* matcha-app.app */,
+				193741492F81DE7000BEC04F /* tabby.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -53,9 +53,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		193741482F81DE7000BEC04F /* matcha-app */ = {
+		193741482F81DE7000BEC04F /* tabby */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 193741542F81DE7200BEC04F /* Build configuration list for PBXNativeTarget "matcha-app" */;
+			buildConfigurationList = 193741542F81DE7200BEC04F /* Build configuration list for PBXNativeTarget "tabby" */;
 			buildPhases = (
 				193741452F81DE7000BEC04F /* Sources */,
 				193741462F81DE7000BEC04F /* Frameworks */,
@@ -66,14 +66,14 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				1937414B2F81DE7000BEC04F /* matcha-app */,
+				1937414B2F81DE7000BEC04F /* tabby */,
 			);
-			name = "matcha-app";
+			name = "tabby";
 			packageProductDependencies = (
 				A1C3E0002F90000100AAA001 /* LlamaSwift */,
 			);
-			productName = "matcha-app";
-			productReference = 193741492F81DE7000BEC04F /* matcha-app.app */;
+			productName = "tabby";
+			productReference = 193741492F81DE7000BEC04F /* tabby.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -91,7 +91,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 193741442F81DE7000BEC04F /* Build configuration list for PBXProject "matcha-app" */;
+			buildConfigurationList = 193741442F81DE7000BEC04F /* Build configuration list for PBXProject "tabby" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -108,7 +108,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				193741482F81DE7000BEC04F /* matcha-app */,
+				193741482F81DE7000BEC04F /* tabby */,
 			);
 		};
 /* End PBXProject section */
@@ -269,14 +269,14 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSAccessibilityUsageDescription = "Matcha needs Accessibility access to read and insert text in other apps.";
+				INFOPLIST_KEY_NSAccessibilityUsageDescription = "Tabby needs Accessibility access to read and insert text in other apps.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobfu.matcha-app";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobfu.tabby";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -303,14 +303,14 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSAccessibilityUsageDescription = "Matcha needs Accessibility access to read and insert text in other apps.";
+				INFOPLIST_KEY_NSAccessibilityUsageDescription = "Tabby needs Accessibility access to read and insert text in other apps.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobfu.matcha-app";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobfu.tabby";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -325,7 +325,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		193741442F81DE7000BEC04F /* Build configuration list for PBXProject "matcha-app" */ = {
+		193741442F81DE7000BEC04F /* Build configuration list for PBXProject "tabby" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				193741522F81DE7200BEC04F /* Debug */,
@@ -334,7 +334,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		193741542F81DE7200BEC04F /* Build configuration list for PBXNativeTarget "matcha-app" */ = {
+		193741542F81DE7200BEC04F /* Build configuration list for PBXNativeTarget "tabby" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				193741552F81DE7200BEC04F /* Debug */,

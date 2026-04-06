@@ -57,7 +57,7 @@ The core product goal is simple: keep the user in flow.
 ## Project Structure
 
 ```text
-matcha-app/
+tabby/
   App/        # Composition root, lifecycle, coordinator models
   UI/         # Menu bar and presentation components
   Services/   # Runtime, permissions, focus/input capture, OCR, overlay, insertion
@@ -85,15 +85,15 @@ Architecture follows clear boundaries:
 
 ### Run
 
-1. Open matcha-app.xcodeproj in Xcode.
-2. Select the matcha-app scheme.
+1. Open tabby.xcodeproj in Xcode.
+2. Select the tabby scheme.
 3. Build and run.
 4. Grant required permissions when prompted.
 
 Optional CLI build:
 
 ```bash
-xcodebuild -project matcha-app.xcodeproj -scheme matcha-app -configuration Debug -sdk macosx build
+xcodebuild -project tabby.xcodeproj -scheme tabby -configuration Debug -sdk macosx build
 ```
 
 ![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)

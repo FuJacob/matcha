@@ -3,7 +3,7 @@ import Foundation
 import SwiftUI
 
 /// File overview:
-/// Owns the tiny non-activating panel that marks supported inputs with a subtle Matcha icon.
+/// Owns the tiny non-activating panel that marks supported inputs with a subtle Tabby icon.
 /// Unlike the ghost-text overlay, this controller is focus-driven and anchors to the full input frame.
 ///
 /// Keeping this as a separate controller preserves the architectural split between:
@@ -74,7 +74,7 @@ final class ActivationIndicatorController {
         lastInputFrameRect = inputFrameRect
     }
 
-    /// Hides the indicator when Matcha is not actively supporting the current field.
+    /// Hides the indicator when Tabby is not actively supporting the current field.
     func hide(reason _: String) {
         panel.orderOut(nil)
         lastInputFrameRect = nil

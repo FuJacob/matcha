@@ -99,9 +99,9 @@ final class FocusTracker {
 
         if application.bundleIdentifier == ignoredBundleIdentifier {
             return FocusSnapshot(
-                applicationName: application.localizedName ?? "Matcha",
+                applicationName: application.localizedName ?? "Tabby",
                 bundleIdentifier: application.bundleIdentifier,
-                capability: .blocked("Matcha is focused."),
+                capability: .blocked("Tabby is focused."),
                 context: nil,
                 inspection: nil
             )
@@ -285,7 +285,7 @@ final class FocusTracker {
         return ordered
     }
 
-    /// Extracts the AX properties Matcha needs from one candidate element near the current focus.
+    /// Extracts the AX properties Tabby needs from one candidate element near the current focus.
     private func candidateSnapshot(for element: AXUIElement, bundleIdentifier: String) -> AXFocusCandidate {
         let role = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: element) ?? "Unknown"
         let subrole = AXHelper.stringValue(for: kAXSubroleAttribute as CFString, on: element)
@@ -446,7 +446,7 @@ final class FocusTracker {
         return CGRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height)
     }
 
-    /// Detects secure inputs so Matcha can intentionally refuse to operate in sensitive fields.
+    /// Detects secure inputs so Tabby can intentionally refuse to operate in sensitive fields.
     private func isSecureElement(element: AXUIElement, role: String, subrole: String?) -> Bool {
         let secureMarkers = [
             role.lowercased(),

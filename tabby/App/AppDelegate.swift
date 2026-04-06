@@ -2,7 +2,7 @@ import AppKit
 import Combine
 
 /// File overview:
-/// Builds Matcha's dependency graph and starts the long-lived services that power
+/// Builds Tabby's dependency graph and starts the long-lived services that power
 /// permissions, focus tracking, suggestion generation, overlay rendering, and acceptance.
 /// This file is the app's composition root.
 ///
@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Stops long-lived services before process exit so observers and runtime resources detach cleanly.
     func applicationWillTerminate(_ notification: Notification) {
-        activationIndicatorController.hide(reason: "Activation indicator hidden because Matcha is terminating.")
+        activationIndicatorController.hide(reason: "Activation indicator hidden because Tabby is terminating.")
         suggestionCoordinator.stop()
         inputMonitor.stop()
         focusModel.stop()

@@ -1,7 +1,7 @@
 import Foundation
 
 /// File overview:
-/// Resolves which GGUF assets Matcha should load by checking the app bundle first and the
+/// Resolves which GGUF assets Tabby should load by checking the app bundle first and the
 /// development tree second. This keeps startup logic deterministic while still supporting local dev.
 ///
 enum BundledRuntimeLocatorError: LocalizedError {
@@ -23,7 +23,7 @@ enum BundledRuntimeLocatorError: LocalizedError {
 
 /// Resolves bundled GGUF assets from the app bundle first and the source tree second.
 /// The folder name is still `LlamaRuntime` for now, but it is model storage only.
-/// Matcha links llama.cpp in-process through `llama.swift`; it no longer launches a server.
+/// Tabby links llama.cpp in-process through `llama.swift`; it no longer launches a server.
 struct BundledRuntimeLocator {
     private struct RuntimeCandidate {
         let runtimeDirectoryURL: URL
@@ -203,7 +203,7 @@ struct BundledRuntimeLocator {
     }
 
     private static func developmentRuntimeDirectoryURL() -> URL {
-        if let runtimeDirectoryPath = ProcessInfo.processInfo.environment["MATCHA_RUNTIME_DIR"], !runtimeDirectoryPath.isEmpty {
+        if let runtimeDirectoryPath = ProcessInfo.processInfo.environment["TABBY_RUNTIME_DIR"], !runtimeDirectoryPath.isEmpty {
             return URL(fileURLWithPath: runtimeDirectoryPath, isDirectory: true)
         }
 

@@ -72,6 +72,12 @@ struct MenuBarView: View {
                     options: SuggestionWordCountPreset.allCases
                 )
 
+                SuggestionPromptModePickerRow(
+                    title: "Prompt",
+                    selection: promptModeBinding,
+                    options: SuggestionPromptMode.allCases
+                )
+
                 CompactStatusRow(
                     title: "Focus",
                     value: focusSummaryText,
@@ -305,6 +311,17 @@ struct MenuBarView: View {
         )
     }
 
+    private var promptModeBinding: Binding<SuggestionPromptMode> {
+        Binding(
+            get: {
+                suggestionCoordinator.selectedPromptMode
+            },
+            set: { mode in
+                suggestionCoordinator.selectPromptMode(mode)
+            }
+        )
+    }
+
     private var focusSummaryText: String {
         let appName = focusModel.snapshot.applicationName
 
@@ -518,6 +535,31 @@ private struct SuggestionWordCountPickerRow: View {
                 ForEach(options) { preset in
                     Text(preset.displayLabel)
                         .tag(preset)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct SuggestionPromptModePickerRow: View {
+    let title: String
+    let selection: Binding<SuggestionPromptMode>
+    let options: [SuggestionPromptMode]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 74, alignment: .leading)
+
+            Picker(title, selection: selection) {
+                ForEach(options) { mode in
+                    Text(mode.displayLabel)
+                        .tag(mode)
                 }
             }
             .labelsHidden()

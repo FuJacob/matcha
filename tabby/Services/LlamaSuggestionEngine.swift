@@ -2,7 +2,7 @@ import Foundation
 
 /// File overview:
 /// Wraps the raw llama runtime with prompt/result normalization that is specific to inline
-/// completion. This is where raw generated text becomes a short suggestion Matcha can safely show.
+/// completion. This is where raw generated text becomes a short suggestion Tabby can safely show.
 ///
 /// Keeps prompt normalization separate from the raw llama runtime.
 /// That separation matters because prompt strategy changes far more often than model lifecycle code.

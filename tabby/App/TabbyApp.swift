@@ -2,15 +2,15 @@ import SwiftUI
 
 /// File overview:
 /// Declares the SwiftUI app entry point and hosts the single menu-bar scene that renders
-/// Matcha's compact status UI. Shared services are injected through `AppDelegate`.
+/// Tabby's compact status UI. Shared services are injected through `AppDelegate`.
 ///
 /// `@main` marks the single process entry point for a Swift app.
 @main
-struct matcha_appApp: App {
+struct TabbyApp: App {
     /// Bridges old-style AppKit lifecycle callbacks into a SwiftUI app.
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    /// Defines the menu bar extra that surfaces Matcha's runtime, focus, and suggestion state.
+    /// Defines the menu bar extra that surfaces Tabby's runtime, focus, and suggestion state.
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(
