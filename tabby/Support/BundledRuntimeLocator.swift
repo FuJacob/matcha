@@ -38,6 +38,51 @@ struct BundledRuntimeLocator {
         self.bundle = bundle
     }
 
+    /// Returns the user-writable runtime directory used for on-demand model downloads.
+    /// This keeps large GGUF assets out of the app bundle and allows independent model updates.
+    static func userRuntimeDirectoryURL(bundle: Bundle = .main) -> URL {
+        let appSupportRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Application Support", isDirectory: true)
+        let appFolderName = (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Tabby"
+        return appSupportRoot
+            .appendingPathComponent(appFolderName, isDirectory: true)
+            .appendingPathComponent(Self.runtimeFolderName, isDirectory: true)
+    }
+
+    /// Ordered runtime search directories used to discover GGUF files.
+    /// This mirrors runtime resolution order and is shared by model-install status checks.
+    static func runtimeSearchDirectories(bundle: Bundle = .main) -> [URL] {
+        var directories: [URL] = []
+
+        func appendUnique(_ url: URL?) {
+            guard let url else {
+                return
+            }
+
+            let normalizedPath = url.standardizedFileURL.path
+            guard !directories.contains(where: { $0.standardizedFileURL.path == normalizedPath }) else {
+                return
+            }
+
+            directories.append(url)
+        }
+
+        appendUnique(userRuntimeDirectoryURL(bundle: bundle))
+
+        if let executableDirectoryURL = bundle.executableURL?.deletingLastPathComponent() {
+            appendUnique(executableDirectoryURL.appendingPathComponent(Self.runtimeFolderName, isDirectory: true))
+        }
+
+        if let resourceDirectoryURL = bundle.resourceURL {
+            appendUnique(resourceDirectoryURL.appendingPathComponent(Self.runtimeFolderName, isDirectory: true))
+        }
+
+        appendUnique(developmentRuntimeDirectoryURL())
+        return directories
+    }
+
     /// Finds the first preferred bundled model that exists and returns the fully resolved runtime asset paths.
     func resolve(configuration: LlamaRuntimeConfiguration) throws -> ResolvedLlamaRuntime {
         try resolve(configuration: configuration, selectedModelFilename: nil)
@@ -108,6 +153,15 @@ struct BundledRuntimeLocator {
         }
 
         var candidates: [RuntimeCandidate] = []
+
+        // Prefer user-installed models so app updates and model updates can move independently.
+        let userRuntimeDirectoryURL = Self.userRuntimeDirectoryURL(bundle: bundle)
+        candidates.append(
+            RuntimeCandidate(
+                runtimeDirectoryURL: userRuntimeDirectoryURL,
+                modelDirectoryURL: userRuntimeDirectoryURL
+            )
+        )
 
         if
             let executableDirectoryURL = bundle.executableURL?.deletingLastPathComponent(),

@@ -32,7 +32,90 @@ struct RuntimeModelOption: Equatable, Hashable, Sendable, Identifiable {
     let url: URL
 
     var id: String { filename }
-    var displayName: String { filename }
+    var displayName: String { RuntimeModelCatalog.displayName(for: filename) }
+}
+
+/// Downloadable model metadata used by onboarding and menu-based model installation.
+/// Keeping this as app-level data lets us update app code and model artifacts independently.
+struct DownloadableRuntimeModel: Equatable, Hashable, Sendable, Identifiable {
+    let filename: String
+    let displayName: String
+    let downloadURL: URL
+    let alternateFilenames: [String]
+
+    var id: String { filename }
+
+    var allKnownFilenames: [String] {
+        [filename] + alternateFilenames
+    }
+
+    init(
+        filename: String,
+        displayName: String,
+        downloadURL: URL,
+        alternateFilenames: [String] = []
+    ) {
+        self.filename = filename
+        self.displayName = displayName
+        self.downloadURL = downloadURL
+        self.alternateFilenames = alternateFilenames
+    }
+}
+
+enum RuntimeModelCatalog {
+    static func displayName(for filename: String) -> String {
+        switch filename {
+        case "Qwen3.5-0.8B-Q3_K_M.gguf":
+            return "Qwen 0.8B (fast)"
+        case "Qwen3.5-2B-Q4_K_M.gguf":
+            return "Qwen 2B (balanced)"
+        case "Qwen3.5-9B-Q4_K_M.gguf":
+            return "Qwen 9B (quality)"
+        case "ministral-3-8b-base-2512-q4_k_m.gguf":
+            return "Ministral 8B (quality)"
+        case "Phi-3-mini-128k-instruct.Q4_K_M.gguf":
+            return "Phi-3 Mini (balanced)"
+        case "nb-llama-3.2-3b_1200-q4_k_m.gguf", "Llama-3.2-3B.Q4_K_M.gguf":
+            return "Llama 3.2 3B (balanced)"
+        default:
+            return filename
+        }
+    }
+
+    /// Canonical downloadable model list shown in Welcome and menu UI.
+    static let downloadableModels: [DownloadableRuntimeModel] = [
+        DownloadableRuntimeModel(
+            filename: "nb-llama-3.2-3b_1200-q4_k_m.gguf",
+            displayName: displayName(for: "nb-llama-3.2-3b_1200-q4_k_m.gguf"),
+            downloadURL: URL(string: "https://huggingface.co/NbAiLab/nb-llama-3.2-3B-Q4_K_M-GGUF/resolve/main/nb-llama-3.2-3b_1200-q4_k_m.gguf?download=true")!,
+            alternateFilenames: ["Llama-3.2-3B.Q4_K_M.gguf"]
+        ),
+        DownloadableRuntimeModel(
+            filename: "ministral-3-8b-base-2512-q4_k_m.gguf",
+            displayName: displayName(for: "ministral-3-8b-base-2512-q4_k_m.gguf"),
+            downloadURL: URL(string: "https://huggingface.co/srhm-ca/Ministral-3-8B-Base-2512-Q4_K_M-GGUF/resolve/main/ministral-3-8b-base-2512-q4_k_m.gguf?download=true")!
+        ),
+        DownloadableRuntimeModel(
+            filename: "Phi-3-mini-128k-instruct.Q4_K_M.gguf",
+            displayName: displayName(for: "Phi-3-mini-128k-instruct.Q4_K_M.gguf"),
+            downloadURL: URL(string: "https://huggingface.co/QuantFactory/Phi-3-mini-128k-instruct-GGUF/resolve/main/Phi-3-mini-128k-instruct.Q4_K_M.gguf?download=true")!
+        ),
+        DownloadableRuntimeModel(
+            filename: "Qwen3.5-0.8B-Q3_K_M.gguf",
+            displayName: displayName(for: "Qwen3.5-0.8B-Q3_K_M.gguf"),
+            downloadURL: URL(string: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q3_K_M.gguf?download=true")!
+        ),
+        DownloadableRuntimeModel(
+            filename: "Qwen3.5-2B-Q4_K_M.gguf",
+            displayName: displayName(for: "Qwen3.5-2B-Q4_K_M.gguf"),
+            downloadURL: URL(string: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf?download=true")!
+        ),
+        DownloadableRuntimeModel(
+            filename: "Qwen3.5-9B-Q4_K_M.gguf",
+            displayName: displayName(for: "Qwen3.5-9B-Q4_K_M.gguf"),
+            downloadURL: URL(string: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true")!
+        ),
+    ]
 }
 
 /// Startup configuration that controls which GGUF model to load and how large the runtime should be.
@@ -51,6 +134,9 @@ struct LlamaRuntimeConfiguration: Equatable, Sendable {
             "Qwen3.5-9B-Q4_K_M.gguf",
             "ministral-3-8b-base-2512-q4_k_m.gguf",
             "Qwen3.5-2B-Q4_K_M.gguf",
+            "Qwen3.5-0.8B-Q3_K_M.gguf",
+            "Phi-3-mini-128k-instruct.Q4_K_M.gguf",
+            "nb-llama-3.2-3b_1200-q4_k_m.gguf",
             "Llama-3.2-3B.Q4_K_M.gguf",
         ],
         contextWindowTokens: 2048,

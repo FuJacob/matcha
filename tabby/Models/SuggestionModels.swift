@@ -19,7 +19,12 @@ enum SuggestionWordCountPreset: String, CaseIterable, Equatable, Hashable, Senda
     var id: String { rawValue }
 
     var displayLabel: String {
-        "\(rawValue) words"
+        switch self {
+        case .oneToThree:
+            return "\(rawValue) words (recommended)"
+        case .threeToSeven, .sevenToTwelve, .twelveToTwenty:
+            return "\(rawValue) words"
+        }
     }
 
     var promptInstruction: String {
@@ -110,7 +115,7 @@ struct SuggestionConfiguration: Equatable, Sendable {
         maxPrefixCharacters: 192,
         maxSuffixCharacters: 192,
         customAIInstructions: "Continue the text naturally in the same tone and context.",
-        defaultWordCountPreset: .threeToSeven,
+        defaultWordCountPreset: .oneToThree,
         defaultPromptMode: .guided
     )
 }

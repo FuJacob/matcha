@@ -54,6 +54,17 @@ final class RuntimeBootstrapModel: ObservableObject {
                 self?.diagnostics = diagnostics
             }
             .store(in: &cancellables)
+
+        runtimeManager.$availableModels
+            .sink { [weak self] availableModels in
+                self?.applyAvailableModels(availableModels)
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Triggers a fresh scan of local model files after downloads complete.
+    func refreshAvailableModels() {
+        runtimeManager.refreshAvailableModels()
     }
 
     /// Starts runtime preparation exactly once and keeps duplicate launch attempts idempotent.
@@ -147,5 +158,45 @@ final class RuntimeBootstrapModel: ObservableObject {
     /// Stores the last chosen runtime model so the next launch reuses the same selection.
     private func persistSelectedModelFilename(_ filename: String?) {
         userDefaults.set(filename, forKey: Self.selectedModelDefaultsKey)
+    }
+
+    /// Reconciles persisted/current selection with the newest discovered model list.
+    private func applyAvailableModels(_ availableModels: [RuntimeModelOption]) {
+        self.availableModels = availableModels
+
+        let persistedFilename = userDefaults.string(forKey: Self.selectedModelDefaultsKey)
+        let resolvedSelection = RuntimeBootstrapModel.resolvedSelectedModelFilename(
+            currentSelection: selectedModelFilename,
+            persistedSelection: persistedFilename,
+            availableModels: availableModels
+        )
+
+        selectedModelFilename = resolvedSelection
+        persistSelectedModelFilename(resolvedSelection)
+        runtimeManager.configureSelectedModel(filename: resolvedSelection)
+    }
+
+    private static func resolvedSelectedModelFilename(
+        currentSelection: String?,
+        persistedSelection: String?,
+        availableModels: [RuntimeModelOption]
+    ) -> String? {
+        guard !availableModels.isEmpty else {
+            return nil
+        }
+
+        if let currentSelection,
+           availableModels.contains(where: { $0.filename == currentSelection })
+        {
+            return currentSelection
+        }
+
+        if let persistedSelection,
+           availableModels.contains(where: { $0.filename == persistedSelection })
+        {
+            return persistedSelection
+        }
+
+        return availableModels.first?.filename
     }
 }

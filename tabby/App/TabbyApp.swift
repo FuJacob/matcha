@@ -16,6 +16,7 @@ struct TabbyApp: App {
             MenuBarView(
                 permissionManager: appDelegate.permissionManager,
                 runtimeModel: appDelegate.runtimeModel,
+                modelDownloadManager: appDelegate.modelDownloadManager,
                 focusModel: appDelegate.focusModel,
                 suggestionCoordinator: appDelegate.suggestionCoordinator,
                 welcomeCoordinator: appDelegate.welcomeCoordinator

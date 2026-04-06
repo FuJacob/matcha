@@ -11,6 +11,7 @@ import Combine
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let permissionManager: PermissionManager
     let runtimeModel: RuntimeBootstrapModel
+    let modelDownloadManager: ModelDownloadManager
     let focusModel: FocusTrackingModel
     let inputMonitor: InputMonitor
     let suggestionCoordinator: SuggestionCoordinator
@@ -22,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         let permissionManager = PermissionManager()
         let runtimeManager = LlamaRuntimeManager()
+        let runtimeModel = RuntimeBootstrapModel(runtimeManager: runtimeManager)
+        let modelDownloadManager = ModelDownloadManager()
         let suppressionController = InputSuppressionController()
         let inputMonitor = InputMonitor(
             permissionProvider: { permissionManager.inputMonitoringGranted },
@@ -32,8 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             permissionProvider: { permissionManager.accessibilityGranted },
             ignoredBundleIdentifier: Bundle.main.bundleIdentifier
         )
-        let welcomeCoordinator = WelcomeCoordinator(permissionManager: permissionManager)
-        let runtimeModel = RuntimeBootstrapModel(runtimeManager: runtimeManager)
+        let welcomeCoordinator = WelcomeCoordinator(
+            permissionManager: permissionManager,
+            runtimeModel: runtimeModel,
+            modelDownloadManager: modelDownloadManager
+        )
         let suggestionInserter = SuggestionInserter(suppressionController: suppressionController)
         let overlayController = OverlayController()
         let activationIndicatorController = ActivationIndicatorController()
@@ -52,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.permissionManager = permissionManager
         self.runtimeModel = runtimeModel
+        self.modelDownloadManager = modelDownloadManager
         self.focusModel = focusModel
         self.inputMonitor = inputMonitor
         self.suggestionCoordinator = suggestionCoordinator
@@ -61,6 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         runtimeModel.onWillReloadModel = { [weak suggestionCoordinator] in
             suggestionCoordinator?.prepareForRuntimeModelSwitch()
+        }
+
+        modelDownloadManager.onModelDirectoryChanged = { [weak runtimeModel] in
+            runtimeModel?.refreshAvailableModels()
         }
 
         permissionManager.$inputMonitoringGranted

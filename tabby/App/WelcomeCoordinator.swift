@@ -10,6 +10,8 @@ import SwiftUI
 @MainActor
 final class WelcomeCoordinator: NSObject, NSWindowDelegate {
     private let permissionManager: PermissionManager
+    private let runtimeModel: RuntimeBootstrapModel
+    private let modelDownloadManager: ModelDownloadManager
     private let userDefaults: UserDefaults
 
     private var windowController: NSWindowController?
@@ -18,9 +20,13 @@ final class WelcomeCoordinator: NSObject, NSWindowDelegate {
 
     init(
         permissionManager: PermissionManager,
+        runtimeModel: RuntimeBootstrapModel,
+        modelDownloadManager: ModelDownloadManager,
         userDefaults: UserDefaults = .standard
     ) {
         self.permissionManager = permissionManager
+        self.runtimeModel = runtimeModel
+        self.modelDownloadManager = modelDownloadManager
         self.userDefaults = userDefaults
     }
 
@@ -47,6 +53,8 @@ final class WelcomeCoordinator: NSObject, NSWindowDelegate {
         let hostingController = NSHostingController(
             rootView: WelcomeView(
                 permissionManager: permissionManager,
+                runtimeModel: runtimeModel,
+                modelDownloadManager: modelDownloadManager,
                 onDismiss: { [weak self] in
                     self?.dismissWelcome()
                 },
@@ -55,12 +63,15 @@ final class WelcomeCoordinator: NSObject, NSWindowDelegate {
                 },
                 onOpenInputMonitoring: { [weak permissionManager] in
                     permissionManager?.openInputMonitoringSettings()
+                },
+                onOpenModelsFolder: { [weak modelDownloadManager] in
+                    modelDownloadManager?.openModelsDirectory()
                 }
             )
         )
 
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 420, height: 332),
+            contentRect: CGRect(x: 0, y: 0, width: 460, height: 520),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false

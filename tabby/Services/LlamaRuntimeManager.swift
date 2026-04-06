@@ -361,11 +361,11 @@ private actor LlamaRuntimeCore {
 final class LlamaRuntimeManager: ObservableObject {
     @Published private(set) var state: RuntimeBootstrapState = .idle
     @Published private(set) var diagnostics = LlamaRuntimeDiagnostics()
+    @Published private(set) var availableModels: [RuntimeModelOption] = []
 
     private let configuration: LlamaRuntimeConfiguration
     private let runtimeLocator: BundledRuntimeLocator
     private let core: LlamaRuntimeCore
-    let availableModels: [RuntimeModelOption]
     private var startupTask: Task<PreparedLlamaRuntime, Error>?
     private var startupModelFilename: String?
     private var cachedRuntime: PreparedLlamaRuntime?
@@ -384,9 +384,15 @@ final class LlamaRuntimeManager: ObservableObject {
     ) {
         self.configuration = configuration
         self.runtimeLocator = runtimeLocator
-        availableModels = runtimeLocator.availableModels(configuration: configuration)
-        selectedModelFilename = availableModels.first?.filename
         core = LlamaRuntimeCore()
+        refreshAvailableModels()
+    }
+
+    /// Re-scans local runtime directories for GGUF files and republishes discovered options.
+    /// This is called after model downloads so selection UI updates without app restart.
+    func refreshAvailableModels() {
+        availableModels = runtimeLocator.availableModels(configuration: configuration)
+        selectedModelFilename = normalizedModelFilename(selectedModelFilename)
     }
 
     /// Records which discovered model should be loaded when preparation starts.

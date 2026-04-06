@@ -158,7 +158,7 @@ private enum ActivationIndicatorMode: Equatable {
         case .summarizing:
             return "wand.and.stars"
         case .unavailable:
-            return "camera.slash.fill"
+            return "camera"
         case .failed:
             return "exclamationmark.triangle.fill"
         case .idle, .ready:

@@ -1,144 +1,58 @@
 # Tabby
 
-Tabby is a local-first AI autocomplete assistant for macOS that works directly inside the apps where people already write.
+Tabby lives in the menu bar and gives local inline autocomplete in whatever app you are typing in. Press Tab to accept.
 
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
+## What It Does
 
-## Project Purpose
+- Reads focused text context via Accessibility
+- Watches keyboard input (Input Monitoring)
+- Shows ghost text near the caret
+- Optionally uses screenshot context hints
+- Runs local GGUF models
 
-People spend a lot of their day typing emails, messages, notes, and other small bits of writing. The frustrating part is that most AI tools still make you leave what you are doing, go to another window, write a prompt, and then bring the result back.
+## Current State
 
-Tabby is our attempt to make that feel natural by bringing inline autocomplete directly into any app you already type in.
+- Works, but still very WIP
+- UX is still being tuned
+- Models are download-on-demand now
 
-The core product goal is simple: keep the user in flow.
+## Quick Start
 
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
+1. Open tabby.xcodeproj
+2. Run the tabby scheme
+3. Grant permissions when prompted
+4. Download whichever model(s) you want from Welcome or the menu
 
-## What Tabby Does
-
-- Watches the currently focused text field across macOS apps.
-- Suggests short continuations as ghost text near the caret.
-- Lets users accept suggestions with Tab in-place.
-- Optionally uses screenshot-derived context hints to improve relevance.
-- Runs local model inference in-process for low-latency autocomplete.
-
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
-
-## High-Level Tech Stack
-
-- Language: Swift
-- UI: SwiftUI + AppKit (menu bar app + lightweight overlay windows)
-- System integration: macOS Accessibility APIs, CGEventTap (Input Monitoring)
-- Visual context pipeline: ScreenCaptureKit + Vision OCR
-- LLM runtime: llama.cpp via LlamaSwift
-- Concurrency and state: Swift Concurrency, Combine, MainActor-isolated services
-
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
-
-## How It Works
-
-1. Focus tracking
-   - Tabby polls and resolves the active text input context (field identity, caret location, surrounding text).
-2. Input monitoring
-   - Global key events are classified into typing/navigation/shortcut intent.
-   - Suggestion generation is gated to completed word boundaries to avoid half-typed prompt anchors.
-3. Prompt construction
-   - The prompt is built from a short trailing prefix window plus optional ScreenContextHints.
-4. Model inference
-   - A local llama runtime generates a short continuation constrained by the selected word range.
-5. Normalization and validation
-   - Output is normalized, stale generations are dropped, and only fresh context-matching suggestions are surfaced.
-6. Inline UX
-   - Ghost text is rendered near the caret.
-   - Tab accepts the next chunk while preserving session consistency.
-
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
-
-## Project Structure
-
-```text
-tabby/
-  App/        # Composition root, lifecycle, coordinator models
-  UI/         # Menu bar and presentation components
-  Services/   # Runtime, permissions, focus/input capture, OCR, overlay, insertion
-  Models/     # Shared state and request/response contracts
-  Support/    # Helpers for AX and runtime/file resolution
-  LlamaRuntime/ # Local model artifacts
-```
-
-Architecture follows clear boundaries:
-
-- App owns lifecycle and dependency composition.
-- Services own side effects and OS integration.
-- Models define stable contracts between components.
-- UI reads published state and renders status/controls.
-
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
-
-## Local Development
-
-### Prerequisites
-
-- macOS development machine
-- Xcode (recent stable version)
-- Local model files available in LlamaRuntime/
-
-### Run
-
-1. Open tabby.xcodeproj in Xcode.
-2. Select the tabby scheme.
-3. Build and run.
-4. Grant required permissions when prompted.
-
-Optional CLI build:
+CLI build:
 
 ```bash
 xcodebuild -project tabby.xcodeproj -scheme tabby -configuration Debug -sdk macosx build
 ```
 
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
+## Permissions
 
-## Required macOS Permissions
+- Accessibility: read focused input and caret
+- Input Monitoring: detect typing and Tab acceptance
+- Screen Recording: optional, for screenshot context
 
-- Accessibility: Read focused element metadata and caret context.
-- Input Monitoring: Observe global key events for inline acceptance behavior.
-- Screen Recording: Capture frontmost window for screenshot-derived context hints.
+## Model Strategy
 
-Without these permissions, Tabby falls back gracefully and disables affected features.
+Bundling giant models inside the app package is painful, so this project does not depend on that.
 
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
+- Ship app separately
+- Download models after install
+- Update models independently from app updates
 
-## Privacy and Data Handling
+Downloaded models are stored in Application Support under the runtime folder.
 
-- Inference is local to the device runtime.
-- Screenshot context is processed to produce short hints for prompt quality.
-- The app is designed for local-first operation rather than cloud-roundtrip workflows.
+## Project Layout
 
-If you plan to distribute externally, add a formal Privacy Policy and explicit retention guarantees.
+- tabby/App: lifecycle and composition
+- tabby/UI: menu and welcome screens
+- tabby/Services: runtime, permissions, tracking, overlays, downloads
+- tabby/Models: shared state/config contracts
+- tabby/Support: helper utilities
 
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
+## Why This Exists
 
-## Current Product Behavior
-
-- Suggestion length is user-configurable (word-range presets).
-- Prompt context is intentionally short to reduce repetition and stale continuation drift.
-- Generation is triggered on completed word boundaries to improve output quality.
-- Activation and visual-context status are surfaced in menu bar and indicator UI.
-
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
-
-## Contributing
-
-Contributions are welcome. For larger feature work, prefer small PRs that keep boundaries clean across App, UI, Services, Models, and Support.
-
-Suggested contribution pattern:
-
-1. Open an issue with goal and UX impact.
-2. Propose architecture changes before implementation.
-3. Submit incremental PRs with clear verification notes.
-
-![rainbow line](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
-
-## Status
-
-Tabby is actively evolving toward production-grade cross-app autocomplete on macOS, with emphasis on flow-preserving UX, local inference, and robust system integration.
+Wanted autocomplete that feels native in normal desktop apps, not another browser tab.

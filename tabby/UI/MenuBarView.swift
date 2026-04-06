@@ -10,6 +10,7 @@ struct MenuBarView: View {
     @ObservedObject var permissionManager: PermissionManager
     /// `@ObservedObject` listens to an external owner; the model lifetime is not owned by this view.
     @ObservedObject var runtimeModel: RuntimeBootstrapModel
+    @ObservedObject var modelDownloadManager: ModelDownloadManager
     @ObservedObject var focusModel: FocusTrackingModel
     @ObservedObject var suggestionCoordinator: SuggestionCoordinator
     let welcomeCoordinator: WelcomeCoordinator
@@ -54,7 +55,7 @@ struct MenuBarView: View {
                 if runtimeModel.availableModels.isEmpty {
                     CompactStatusRow(
                         title: "Model",
-                        value: "No bundled GGUF models found",
+                        value: "No local GGUF models found",
                         tone: .secondary
                     )
                 } else {
@@ -64,6 +65,10 @@ struct MenuBarView: View {
                         models: runtimeModel.availableModels,
                         isDisabled: runtimePickerDisabled
                     )
+                }
+
+                if !modelDownloadManager.models.isEmpty {
+                    modelDownloadSection
                 }
 
                 SuggestionWordCountPickerRow(
@@ -276,6 +281,59 @@ struct MenuBarView: View {
         }
     }
 
+    private var modelDownloadSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("Models")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 74, alignment: .leading)
+
+                Text("Download on demand")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 0)
+            }
+
+            ForEach(modelDownloadManager.models) { model in
+                let state = modelDownloadManager.state(for: model)
+
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(model.displayName)
+                            .font(.caption)
+                            .lineLimit(1)
+                        Text(state.statusText)
+                            .font(.caption2)
+                            .foregroundStyle(modelDownloadStatusColor(for: state))
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Button(downloadButtonTitle(for: state)) {
+                        modelDownloadManager.download(model)
+                    }
+                    .controlSize(.small)
+                    .disabled(isDownloadButtonDisabled(for: state))
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button("Open Folder") {
+                    modelDownloadManager.openModelsDirectory()
+                }
+                .controlSize(.small)
+
+                Button("Refresh") {
+                    modelDownloadManager.refreshModelStates()
+                    runtimeModel.refreshAvailableModels()
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
     private var selectedModelBinding: Binding<String> {
         Binding(
             get: {
@@ -297,6 +355,41 @@ struct MenuBarView: View {
             return true
         case .idle, .ready, .failed:
             return false
+        }
+    }
+
+    private func downloadButtonTitle(for state: ModelDownloadState) -> String {
+        switch state {
+        case .idle:
+            return "Download"
+        case .downloading:
+            return "Downloading"
+        case .downloaded:
+            return "Installed"
+        case .failed:
+            return "Retry"
+        }
+    }
+
+    private func isDownloadButtonDisabled(for state: ModelDownloadState) -> Bool {
+        switch state {
+        case .downloading, .downloaded:
+            return true
+        case .idle, .failed:
+            return false
+        }
+    }
+
+    private func modelDownloadStatusColor(for state: ModelDownloadState) -> Color {
+        switch state {
+        case .downloaded:
+            return .green
+        case .downloading:
+            return .blue
+        case .failed:
+            return .red
+        case .idle:
+            return .secondary
         }
     }
 

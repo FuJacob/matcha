@@ -11,13 +11,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		193741492F81DE7000BEC04F /* tabby.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "tabby.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		193741492F81DE7000BEC04F /* tabby.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = tabby.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1937414B2F81DE7000BEC04F /* tabby */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "tabby";
+			path = tabby;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -68,11 +68,11 @@
 			fileSystemSynchronizedGroups = (
 				1937414B2F81DE7000BEC04F /* tabby */,
 			);
-			name = "tabby";
+			name = tabby;
 			packageProductDependencies = (
 				A1C3E0002F90000100AAA001 /* LlamaSwift */,
 			);
-			productName = "tabby";
+			productName = tabby;
 			productReference = 193741492F81DE7000BEC04F /* tabby.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -276,7 +276,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobfu.tabby";
+				PRODUCT_BUNDLE_IDENTIFIER = com.jacobfu.tabby;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -310,7 +310,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobfu.tabby";
+				PRODUCT_BUNDLE_IDENTIFIER = com.jacobfu.tabby;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
