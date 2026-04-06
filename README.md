@@ -5,6 +5,10 @@
 <img width="128" alt="logo (2)" src="https://github.com/user-attachments/assets/8a67095e-4d03-4055-8d4c-8871335152dd" />
 </p>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png" alt="rainbow line" />
+</p>
+
 
 ## Video Demo
 
