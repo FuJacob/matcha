@@ -35,7 +35,7 @@ Tabby saves time in the small moments that happen constantly:
 - finishing common sentence patterns
 - reducing typo/rewrite loops
 - removing context-switch overhead
-- keeping writing flow in one place
+- keeping writing flow in one place, no need to move writing into a different editor
 
 A few seconds saved per message adds up quickly over a full day.
 
