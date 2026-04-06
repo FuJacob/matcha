@@ -874,8 +874,12 @@ final class SuggestionCoordinator: ObservableObject {
         let prefix = truncatedPromptPrefix(from: context.precedingText)
 
         if selectedPromptMode == .prefixOnly {
-            // Prefix-only mode intentionally sends no system instructions or extra context.
-            return prefix
+            // Temporary experiment: always prepend one hardcoded user profile block for prefix-only mode.
+            return [
+                "I am jacob fu, a 19 year old male.",
+                "---",
+                prefix
+            ].joined(separator: "\n")
         }
 
         var sections = [

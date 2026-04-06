@@ -274,89 +274,102 @@ enum AXHelper {
         knownReadOnlyRoles.contains(role)
     }
 
-    static let requiresPixelToPointScalingBundles: Set<String> = [
-        "com.google.Chrome",
-        "com.google.Chrome.canary",
-        "com.microsoft.edgemac",
-        "com.microsoft.edgemac.Canary",
-        "com.brave.Browser",
-        "company.thebrowser.Browser",
-        "com.vivaldi.Vivaldi",
-        "org.chromium.Chromium",
-        "com.tinyspeck.slackmacgap",
-        "com.github.Electron",
-        "com.valvesoftware.discord",
-        "com.figma.Desktop",
-        "com.superhuman.electronic-superman"
-    ]
-
-    private static let requiresPixelToPointScalingBundleFragments = [
-        "chrome",
-        "chromium",
-        "electron",
-        "brave",
-        "vivaldi",
-        "edge",
-        "gmail",
-        "figma",
-        "discord",
-        "slack",
-        "superhuman"
-    ]
-
-    private static func requiresPixelToPointScaling(bundleIdentifier: String) -> Bool {
-        if requiresPixelToPointScalingBundles.contains(bundleIdentifier) {
-            return true
-        }
-
-        let normalized = bundleIdentifier.lowercased()
-        return requiresPixelToPointScalingBundleFragments.contains { normalized.contains($0) }
-    }
-
-    /// Converts raw Accessibility coordinates into global AppKit points.
-    /// Some applications (like Chromium-based browsers) incorrectly return raw physical 
-    /// backing pixels for text ranges, so `isTextRect` allows conditionally scaling them back down.
-    /// Normalizes raw Accessibility coordinates into global AppKit points and applies per-app scaling fixes.
-    static func cocoaRect(fromAccessibilityRect rect: CGRect, bundleIdentifier: String, isTextRect: Bool) -> CGRect {
+    /// Converts raw Accessibility coordinates into global AppKit points via a simple Y-flip.
+    /// Use this for element-level rects (AXFrame) that are reliably in Cocoa points.
+    /// For text-range rects (BoundsForRange, TextMarker), use `validatedCocoaTextRect` instead.
+    static func cocoaRect(fromAccessibilityRect rect: CGRect) -> CGRect {
         guard !rect.isNull, rect != .zero else {
             return rect
         }
 
-        var normalizedRect = rect
-
-        // Chromium often returns physical pixels instead of Cocoa points for text ranges on Retina.
-        if isTextRect && requiresPixelToPointScaling(bundleIdentifier: bundleIdentifier) {
-            // Find the screen this coordinate falls on (approximate) to determine the scale factor.
-            let fallbackScale = NSScreen.main?.backingScaleFactor ?? 2.0
-            let scale: CGFloat = NSScreen.screens.first(where: {
-                $0.frame.contains(CGPoint(x: rect.origin.x / fallbackScale, y: $0.frame.maxY - (rect.origin.y / fallbackScale)))
-            })?.backingScaleFactor ?? fallbackScale
-            
-            normalizedRect = CGRect(
-                x: rect.origin.x / scale,
-                y: rect.origin.y / scale,
-                width: rect.width / scale,
-                height: rect.height / scale
-            )
-        }
-
-        // AX text bounds are reported in a top-left global space. Use the union of all screen
-        // frames rather than only the primary screen so multi-display coordinates still map correctly.
-        let desktopBounds = NSScreen.screens
-            .map(\.frame)
-            .reduce(into: CGRect.null) { partialResult, frame in
-                partialResult = partialResult.union(frame)
-            }
-
+        let desktopBounds = desktopUnionFrame()
         guard !desktopBounds.isNull else {
-            return normalizedRect
+            return rect
         }
 
         return CGRect(
-            x: normalizedRect.origin.x,
-            y: desktopBounds.maxY - normalizedRect.origin.y - normalizedRect.height,
-            width: normalizedRect.width,
-            height: normalizedRect.height
+            x: rect.origin.x,
+            y: desktopBounds.maxY - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
         )
+    }
+
+    /// Converts a text-range AX rect to Cocoa coordinates, using the element's AXFrame (already
+    /// in Cocoa coordinates) as a ground-truth anchor to detect whether pixel-to-point scaling
+    /// is needed. This replaces the old bundle-ID heuristic with empirical geometric validation:
+    ///   1. Y-flip the raw rect (no scaling) and check if it lands inside the anchor.
+    ///   2. If not, divide by the Retina backing scale factor, Y-flip, and recheck.
+    ///   3. Whichever version falls near the anchor wins. Falls back to unscaled if neither fits.
+    static func validatedCocoaTextRect(
+        fromAccessibilityRect textRect: CGRect,
+        anchorFrame cocoaAnchorFrame: CGRect?
+    ) -> CGRect {
+        guard !textRect.isNull, textRect != .zero else {
+            return textRect
+        }
+
+        let desktopBounds = desktopUnionFrame()
+        guard !desktopBounds.isNull else {
+            return textRect
+        }
+
+        // Candidate A: plain Y-flip, assuming the AX rect is already in Cocoa points.
+        let flipped = CGRect(
+            x: textRect.origin.x,
+            y: desktopBounds.maxY - textRect.origin.y - textRect.height,
+            width: textRect.width,
+            height: textRect.height
+        )
+
+        guard let anchor = cocoaAnchorFrame, !anchor.isEmpty else {
+            // No anchor available — plain Y-flip is the safest default.
+            return flipped
+        }
+
+        // Generous tolerance so padding, scrolling, and multi-line fields don't cause false negatives.
+        let tolerance: CGFloat = 80
+        let expandedAnchor = anchor.insetBy(dx: -tolerance, dy: -tolerance)
+
+        if expandedAnchor.contains(CGPoint(x: flipped.midX, y: flipped.midY)) {
+            return flipped
+        }
+
+        // Candidate B: divide by backing scale factor first (Chromium pixel-space workaround),
+        // then Y-flip. Some apps return physical pixels for text ranges on Retina.
+        let fallbackScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let scale: CGFloat = NSScreen.screens.first(where: {
+            $0.frame.contains(CGPoint(
+                x: textRect.origin.x / fallbackScale,
+                y: $0.frame.maxY - (textRect.origin.y / fallbackScale)
+            ))
+        })?.backingScaleFactor ?? fallbackScale
+
+        let scaled = CGRect(
+            x: textRect.origin.x / scale,
+            y: textRect.origin.y / scale,
+            width: textRect.width / scale,
+            height: textRect.height / scale
+        )
+        let scaledFlipped = CGRect(
+            x: scaled.origin.x,
+            y: desktopBounds.maxY - scaled.origin.y - scaled.height,
+            width: scaled.width,
+            height: scaled.height
+        )
+
+        if expandedAnchor.contains(CGPoint(x: scaledFlipped.midX, y: scaledFlipped.midY)) {
+            return scaledFlipped
+        }
+
+        // Neither candidate landed near the anchor. Return unscaled as best-effort.
+        return flipped
+    }
+
+    /// Union of all connected screen frames — used for AX top-left → Cocoa bottom-left conversion.
+    private static func desktopUnionFrame() -> CGRect {
+        NSScreen.screens
+            .map(\.frame)
+            .reduce(into: CGRect.null) { $0 = $0.union($1) }
     }
 }

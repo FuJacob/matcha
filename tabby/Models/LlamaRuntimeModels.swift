@@ -80,7 +80,7 @@ enum RuntimeModelCatalog {
         case "google_gemma-4-E2B-it-Q4_K_M.gguf":
             return "Gemma 4 2B (fast)"
         case "gemma-3n-E4B-it-Q4_K_M.gguf":
-            return "Gemma 3n 4B (balanced)"
+            return "Gemma 3n 4B (balanced, recommended)"
         default:
             return filename
         }
@@ -145,8 +145,8 @@ struct LlamaRuntimeConfiguration: Equatable, Sendable {
     static let `default` = LlamaRuntimeConfiguration(
         runtimeDirectoryPath: nil,
         preferredModelNames: [
-            "Qwen3.5-9B-Q4_K_M.gguf",
             "gemma-3n-E4B-it-Q4_K_M.gguf",
+            "Qwen3.5-9B-Q4_K_M.gguf",
             "ministral-3-8b-base-2512-q4_k_m.gguf",
             "Qwen3.5-2B-Q4_K_M.gguf",
             "google_gemma-4-E2B-it-Q4_K_M.gguf",

@@ -301,7 +301,7 @@ final class FocusTracker {
             ? AXHelper.rangeValue(for: kAXSelectedTextRangeAttribute as CFString, on: element)
             : nil
         let inputFrameRect = supportedAttributes.contains("AXFrame")
-            ? resolveInputFrameRect(for: element, bundleIdentifier: bundleIdentifier)
+            ? resolveInputFrameRect(for: element)
             : nil
         let caretRect = selection.flatMap {
             resolveCaretRect(
@@ -309,7 +309,7 @@ final class FocusTracker {
                 selection: $0,
                 supportsBoundsForRange: supportedParameterizedAttributes.contains(kAXBoundsForRangeParameterizedAttribute as String),
                 supportsFrame: supportedAttributes.contains("AXFrame"),
-                bundleIdentifier: bundleIdentifier,
+                cocoaAnchorFrame: inputFrameRect,
                 textValue: textValue
             )
         }
@@ -344,58 +344,51 @@ final class FocusTracker {
     /// Resolves the full input frame that the activation indicator uses as its visual anchor.
     /// This is intentionally separate from caret resolution because the indicator tracks field
     /// support, not the exact text insertion point.
-    private func resolveInputFrameRect(
-        for element: AXUIElement,
-        bundleIdentifier: String
-    ) -> CGRect? {
+    private func resolveInputFrameRect(for element: AXUIElement) -> CGRect? {
         guard let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty else {
             return nil
         }
 
-        return AXHelper.cocoaRect(
-            fromAccessibilityRect: frame,
-            bundleIdentifier: bundleIdentifier,
-            isTextRect: false
-        )
+        return AXHelper.cocoaRect(fromAccessibilityRect: frame)
     }
 
     /// Finds the best caret anchor available, preferring bounds-for-range and falling back to element frame.
+    /// `cocoaAnchorFrame` is the element's AXFrame already converted to Cocoa coordinates — it serves
+    /// as the ground-truth reference for detecting whether text-range rects need pixel-to-point scaling.
     private func resolveCaretRect(
         for element: AXUIElement,
         selection: NSRange,
         supportsBoundsForRange: Bool,
         supportsFrame: Bool,
-        bundleIdentifier: String,
+        cocoaAnchorFrame: CGRect?,
         textValue: String? = nil
     ) -> CGRect? {
+        // Branch 1: Zero-length BoundsForRange at the caret position — ideal case.
         if supportsBoundsForRange,
            let rect = AXHelper.parameterizedRectValue(
                for: kAXBoundsForRangeParameterizedAttribute as CFString,
                range: NSRange(location: selection.location, length: 0),
                on: element
            ), !rect.isEmpty {
-            let cocoaRect = AXHelper.cocoaRect(
+            let cocoaRect = AXHelper.validatedCocoaTextRect(
                 fromAccessibilityRect: rect,
-                bundleIdentifier: bundleIdentifier,
-                isTextRect: true
+                anchorFrame: cocoaAnchorFrame
             )
-            let normalized = normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
-            return normalized
+            return normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
         }
 
-        // Branch 1.5: Chromium / WebKit specific AXTextMarker fallback
-        // Apps like Discord/Chrome fail the typical `NSRange` queries but will successfully return
-        // a perfect caret bounding box if we use their internal `AXTextMarkerRange`.
+        // Branch 1.5: Chromium / WebKit AXTextMarker fallback.
+        // Apps like Discord/Chrome fail NSRange queries but return a correct bounding box
+        // when we ask for the caret via their internal AXTextMarkerRange objects.
         if let markerRect = AXHelper.textMarkerCaretRect(on: element), !markerRect.isEmpty {
-            let cocoaRect = AXHelper.cocoaRect(
+            let cocoaRect = AXHelper.validatedCocoaTextRect(
                 fromAccessibilityRect: markerRect,
-                bundleIdentifier: bundleIdentifier,
-                isTextRect: true
+                anchorFrame: cocoaAnchorFrame
             )
-            let normalized = normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
-            return normalized
+            return normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
         }
 
+        // Branch 2: BoundsForRange on the character before the caret, then shift to its trailing edge.
         if supportsBoundsForRange,
            selection.location > 0,
            let rect = AXHelper.parameterizedRectValue(
@@ -403,31 +396,27 @@ final class FocusTracker {
                range: NSRange(location: selection.location - 1, length: 1),
                on: element
            ), !rect.isEmpty {
-            let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: rect, bundleIdentifier: bundleIdentifier, isTextRect: true)
-            let returnedRect = CGRect(x: cocoaRect.maxX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
-            return returnedRect
+            let cocoaRect = AXHelper.validatedCocoaTextRect(
+                fromAccessibilityRect: rect,
+                anchorFrame: cocoaAnchorFrame
+            )
+            return CGRect(x: cocoaRect.maxX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
         }
 
+        // Branch 3: AXFrame fallback — no text-range data available, estimate from element bounds.
         if supportsFrame,
            let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty {
-            let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: frame, bundleIdentifier: bundleIdentifier, isTextRect: false)
-            if cocoaRect.width > 10 {
-                // Attempt an estimation based on string length if we know it
-                if let text = textValue {
-                    let prefix = (text as NSString).substring(to: min(selection.location, (text as NSString).length))
-                    let estimatedWidthPerChar: CGFloat = 8.0 // Very rough guess for 14-16pt font
-                    let estimatedX = cocoaRect.minX + (CGFloat(prefix.count) * estimatedWidthPerChar)
-                    
-                    // Clamp to the box
-                    let clampedX = min(estimatedX, cocoaRect.maxX)
-                    
-                    let fakeCaret = CGRect(x: clampedX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
-                    return fakeCaret
-                }
+            let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: frame)
+            if cocoaRect.width > 10, let text = textValue {
+                let prefix = (text as NSString).substring(to: min(selection.location, (text as NSString).length))
+                let estimatedWidthPerChar: CGFloat = 8.0
+                let estimatedX = cocoaRect.minX + (CGFloat(prefix.count) * estimatedWidthPerChar)
+                let clampedX = min(estimatedX, cocoaRect.maxX)
+                return CGRect(x: clampedX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
             }
-            
             return cocoaRect
         }
+
         return nil
     }
 
