@@ -38,14 +38,14 @@ enum SuggestionWordCountPreset: String, CaseIterable, Equatable, Hashable, Senda
     /// Approximate token budget needed to satisfy this word range with punctuation and contractions.
     var suggestedPredictionTokenBudget: Int {
         switch self {
-        case .oneToThree:
-            return 8
-        case .threeToSeven:
-            return 12
-        case .sevenToTwelve:
-            return 20
-        case.twelveToTwenty:
-            return 40
+    case .oneToThree:
+    return 12
+case .threeToSeven:
+    return 20
+case .sevenToTwelve:
+    return 36
+case .twelveToTwenty:
+    return 60
         }
 
     }
@@ -100,14 +100,14 @@ struct SuggestionConfiguration: Equatable, Sendable {
         // within a single frame. A more conservative delay improves prompt freshness.
         debounceMilliseconds: 180,
         // Match the working ollama cURL parameters
-        temperature: 0.1,
+        temperature: 0.05,
         topK: 40,
         topP: 0.75,
         minP: 0.05,
         repetitionPenalty: 1.15,
-        maxPrefixWords: 5,
+        maxPrefixWords: 3,
         // Prompt windows should stay small. Sending an entire Xcode buffer kills latency for no gain.
-        maxPrefixCharacters: 192,
+        maxPrefixCharacters: 400,
         maxSuffixCharacters: 192,
         customAIInstructions: "Continue the text naturally in the same tone and context.",
         defaultWordCountPreset: .threeToSeven,

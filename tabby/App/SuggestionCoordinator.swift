@@ -875,11 +875,7 @@ final class SuggestionCoordinator: ObservableObject {
 
         if selectedPromptMode == .prefixOnly {
             // Temporary experiment: always prepend one hardcoded user profile block for prefix-only mode.
-            return [
-                "I am jacob fu, a 19 year old male.",
-                "---",
-                prefix
-            ].joined(separator: "\n")
+            return prefix
         }
 
         var sections = [
