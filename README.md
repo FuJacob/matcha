@@ -21,6 +21,7 @@ They seem better, but they depend on a quiet environment, and speaking often mov
 ## Solution
 
 Tabby is a menu bar app that adds local AI autocomplete to any text field you are already in.
+
 - suggestion appears as ghost text overlay near your caret
 - press Tab to accept each word
 - keep typing and truly flow.
@@ -45,8 +46,8 @@ A few seconds saved per message adds up quickly over a full day.
 - Caret anchoring uses AX range bounds and fallback heuristics so ghost text can be placed near the live insertion point across different apps.
 - Input monitoring uses a global key tap to detect typing/navigation and Tab acceptance, then debounces generation to avoid noisy triggers.
 - Prompting supports two modes:
-	- Guided mode: structured inline instructions plus optional screen-context hints.
-	- Prefix Only mode: raw prefix continuation with no extra instruction framing.
+  - Guided mode: structured inline instructions plus optional screen-context hints.
+  - Prefix Only mode: raw prefix continuation with no extra instruction framing.
 - Models are local GGUF files running in-process via llama.cpp through LlamaSwift (no remote API endpoint dependency).
 - Models are downloaded on demand after install and loaded from the local runtime folder, so app updates and model updates stay independent.
 - Suggestion flow is continuous: generate a tail, render ghost text at the caret, accept with Tab in chunks, and reject stale outputs when context changes.
