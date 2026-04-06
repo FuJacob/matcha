@@ -302,29 +302,34 @@ struct MenuBarView: View {
                 Spacer(minLength: 0)
             }
 
-            ForEach(modelDownloadManager.models) { model in
-                let state = modelDownloadManager.state(for: model)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(modelDownloadManager.models) { model in
+                        let state = modelDownloadManager.state(for: model)
 
-                HStack(alignment: .center, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(model.displayName)
-                            .font(.caption)
-                            .lineLimit(1)
-                        Text(state.statusText)
-                            .font(.caption2)
-                            .foregroundStyle(modelDownloadStatusColor(for: state))
-                            .lineLimit(1)
+                        HStack(alignment: .center, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(model.displayName)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                Text(state.statusText)
+                                    .font(.caption2)
+                                    .foregroundStyle(modelDownloadStatusColor(for: state))
+                                    .lineLimit(1)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            Button(downloadButtonTitle(for: state)) {
+                                modelDownloadManager.download(model)
+                            }
+                            .controlSize(.small)
+                            .disabled(isDownloadButtonDisabled(for: state))
+                        }
                     }
-
-                    Spacer(minLength: 0)
-
-                    Button(downloadButtonTitle(for: state)) {
-                        modelDownloadManager.download(model)
-                    }
-                    .controlSize(.small)
-                    .disabled(isDownloadButtonDisabled(for: state))
                 }
             }
+            .frame(maxHeight: 120)
 
             HStack(spacing: 8) {
                 Button("Open Folder") {
