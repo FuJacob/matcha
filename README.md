@@ -1,27 +1,72 @@
 # Tabby
 
-Tabby lives in the menu bar and gives local inline autocomplete in whatever app you are typing in. Press Tab to accept.
+## Hackathon Prompt
 
-## What It Does
+**Build something that gives people time back in their day using AI.**
 
-- Reads focused text context via Accessibility
-- Watches keyboard input (Input Monitoring)
-- Shows ghost text near the caret
-- Optionally uses screenshot context hints
-- Runs local GGUF models
+When I read that prompt, I asked myself what actually steals time from my day. Then I realized, typing is one.
 
-## Current State
+I am a slower typer, but I need to type all sorts of things all day, for example, messages, docs, notes, emails, commits, and random drafts.
 
-- Works, but still very WIP
-- UX is still being tuned
-- Models are download-on-demand now
+**One might suggest using an AI tool like ChatGPT or Gemini.**
 
-## Quick Start
+But in practice, switching to a separate app, starting a conversation, and getting back a block of text breaks the natural flow of writing. It forces constant context switching and small manual edits.
 
-1. Open tabby.xcodeproj
-2. Run the tabby scheme
-3. Grant permissions when prompted
-4. Download whichever model(s) you want from Welcome or the menu
+**Well, how about AI dictation tools like Wispr Flow?**
+
+They seem better, but they depend on a quiet environment, and speaking often moves faster than my thoughts. When I’m trying to carefully shape a message, dictation can feel rushed rather than helpful.
+
+**That led to an idea: what if we had inline AI autocomplete that works in any app.**
+
+## Solution
+
+Tabby is a menu bar app that adds local AI autocomplete to any text field you are already in.
+- suggestion appears as ghost text overlay near your caret
+- press Tab to accept each word
+- keep typing and truly flow.
+
+No browser hop. No copy/paste loop. No speaking out loud.
+
+## Why This Gives Time Back
+
+Tabby saves time in the small moments that happen constantly:
+
+- finishing common sentence patterns
+- reducing typo/rewrite loops
+- removing context-switch overhead
+- keeping writing flow in one place
+
+A few seconds saved per message adds up quickly over a full day.
+
+## How It Works (High Level)
+
+- Tabby is a macOS menu bar app built in Swift, with SwiftUI for UI and AppKit/Accessibility APIs for system integration.
+- Focus detection runs through Accessibility: we find the active editable element, validate required capabilities, and extract text value, selection range, and caret bounds.
+- Caret anchoring uses AX range bounds and fallback heuristics so ghost text can be placed near the live insertion point across different apps.
+- Input monitoring uses a global key tap to detect typing/navigation and Tab acceptance, then debounces generation to avoid noisy triggers.
+- Prompting supports two modes:
+	- Guided mode: structured inline instructions plus optional screen-context hints.
+	- Prefix Only mode: raw prefix continuation with no extra instruction framing.
+- Models are local GGUF files running in-process via llama.cpp through LlamaSwift (no remote API endpoint dependency).
+- Models are downloaded on demand after install and loaded from the local runtime folder, so app updates and model updates stay independent.
+- Suggestion flow is continuous: generate a tail, render ghost text at the caret, accept with Tab in chunks, and reject stale outputs when context changes.
+- Optional visual context pipeline: frontmost window screenshot -> OCR -> compact hint -> injected only as background context when enabled.
+
+## Quick Demo Flow For Judges
+
+1. Open Tabby.
+2. Type in any supported text field.
+3. See ghost text suggestion.
+4. Press Tab to accept.
+5. Keep typing without leaving your app.
+
+## Run Locally
+
+1. Open source code in XCode
+2. Build the project
+3. Activate necessary permissions in macOS
+4. Download GGUF models into runtime folder
+5. Enjoy!
 
 CLI build:
 
@@ -29,30 +74,9 @@ CLI build:
 xcodebuild -project tabby.xcodeproj -scheme tabby -configuration Debug -sdk macosx build
 ```
 
-## Permissions
+## What’s Next
 
-- Accessibility: read focused input and caret
-- Input Monitoring: detect typing and Tab acceptance
-- Screen Recording: optional, for screenshot context
-
-## Model Strategy
-
-Bundling giant models inside the app package is painful, so this project does not depend on that.
-
-- Ship app separately
-- Download models after install
-- Update models independently from app updates
-
-Downloaded models are stored in Application Support under the runtime folder.
-
-## Project Layout
-
-- tabby/App: lifecycle and composition
-- tabby/UI: menu and welcome screens
-- tabby/Services: runtime, permissions, tracking, overlays, downloads
-- tabby/Models: shared state/config contracts
-- tabby/Support: helper utilities
-
-## Why This Exists
-
-Wanted autocomplete that feels native in normal desktop apps, not another browser tab.
+- Improve compatibility across more macOS apps, since some editors still break focus detection or place ghost overlays in the wrong position.
+- Make generation faster by optimizing runtime settings and tightening prompt construction so suggestions arrive with lower latency.
+- Add memory persistence so Tabby can remember user writing patterns and useful context across sessions.
+- Add deeper personalization controls (tone, style, brevity, domain preferences) so suggestions feel tailored per user.
