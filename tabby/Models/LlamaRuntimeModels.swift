@@ -141,7 +141,7 @@ struct LlamaRuntimeConfiguration: Equatable, Sendable {
     let gpuLayerCount: Int32
 
     /// Order matters here: the locator picks the first GGUF that exists.
-    /// This list is an explicit allowlist for models exposed by Tabby.
+    /// This list defines priority for known models; user-added GGUF files are still discoverable.
     static let `default` = LlamaRuntimeConfiguration(
         runtimeDirectoryPath: nil,
         preferredModelNames: [

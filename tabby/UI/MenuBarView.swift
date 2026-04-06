@@ -134,6 +134,11 @@ struct MenuBarView: View {
                 }
                 .controlSize(.small)
 
+                Button("Guide") {
+                    welcomeCoordinator.showGuide()
+                }
+                .controlSize(.small)
+
                 Spacer(minLength: 0)
 
                 Button("Quit Tabby") {

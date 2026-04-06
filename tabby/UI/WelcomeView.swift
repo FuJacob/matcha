@@ -118,6 +118,11 @@ struct WelcomeView: View {
                 .font(.system(size: 12, weight: .regular, design: .rounded))
                 .foregroundStyle(Color.secondary)
 
+            Text("You can also add your own .gguf file to the model folder, then refresh the model list.")
+                .font(.system(size: 12, weight: .regular, design: .rounded))
+                .foregroundStyle(Color.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             ForEach(modelDownloadManager.models) { model in
                 let state = modelDownloadManager.state(for: model)
 

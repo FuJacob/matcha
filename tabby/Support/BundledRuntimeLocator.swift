@@ -14,7 +14,7 @@ enum BundledRuntimeLocatorError: LocalizedError {
         case let .runtimeDirectoryMissing(path):
             return "Runtime directory is missing at \(path)."
         case let .modelMissing(path):
-            return "No supported GGUF model was found at \(path)."
+            return "No GGUF model was found at \(path)."
         case let .namedModelMissing(filename):
             return "The bundled model \(filename) was not found."
         }
@@ -187,6 +187,7 @@ struct BundledRuntimeLocator {
     }
 
     /// Enumerates and orders all GGUF models for one runtime candidate.
+    /// Preferred names come first; user-added GGUF files are appended alphabetically.
     private func availableModels(
         candidate: RuntimeCandidate,
         preferredModelNames: [String]
@@ -235,8 +236,28 @@ struct BundledRuntimeLocator {
             orderedModels.append(modelOption)
         }
 
-        // Intentionally no alphabetical fallback here: the preferred list is treated as the
-        // explicit allowlist for models that should be visible/selectable in-app.
+        // Custom user-added GGUF files are appended so they stay selectable without being
+        // explicitly listed in preferredModelNames.
+        let sortedDiscoveredModels = discoveredModelURLs
+            .map { modelURL in
+                RuntimeModelOption(
+                    filename: modelURL.lastPathComponent,
+                    url: modelURL
+                )
+            }
+            .sorted { lhs, rhs in
+                lhs.filename.localizedCaseInsensitiveCompare(rhs.filename) == .orderedAscending
+            }
+
+        for modelOption in sortedDiscoveredModels {
+            guard seenFilenames.insert(modelOption.filename).inserted else {
+                continue
+            }
+
+            orderedModels.append(modelOption)
+        }
+
+        // Defensive fallback for unexpected directory listing anomalies.
         if orderedModels.isEmpty {
             throw BundledRuntimeLocatorError.modelMissing(candidate.modelDirectoryURL.path)
         }
