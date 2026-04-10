@@ -1,7 +1,5 @@
 # Tabby
 
-This repository contains the landing page for the Tabby product.
-
 <p align="center">
 	<img width="128" alt="Tabby logo" src="https://github.com/user-attachments/assets/8a67095e-4d03-4055-8d4c-8871335152dd" />
 </p>
