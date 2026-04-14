@@ -1,10 +1,17 @@
 import SwiftUI
 
 /// File overview:
-/// Composes Tabby's primary menu-bar control panel.
-/// This view owns the small amount of presentation logic needed to translate live app state into
-/// one compact, product-facing status line, while the section helpers in `MenuBarSections.swift`
-/// stay focused on native layout.
+/// Composes Tabby's primary menu-bar control panel as a status-first surface
+/// with inline quick controls for session-level preferences.
+///
+/// Design philosophy: the menu bar is the primary interaction surface for a menu bar app.
+/// It shows status at a glance and exposes the controls users reach for mid-session
+/// (engine, model, completion length). Rarely-changed settings (model management,
+/// prompt mode, updates) live in the Settings window.
+///
+/// The focused-app context card was intentionally removed: opening the menu bar panel
+/// steals focus from whatever app the user was typing in, so live focus state is always
+/// stale by the time the panel renders.
 struct MenuBarView: View {
     @ObservedObject var permissionManager: PermissionManager
     @ObservedObject var runtimeModel: RuntimeBootstrapModel
@@ -15,17 +22,228 @@ struct MenuBarView: View {
     @ObservedObject var suggestionCoordinator: SuggestionCoordinator
     let onOpenSettings: () -> Void
 
-    /// The panel should answer a product question, not dump internals:
-    /// "what is the single most important reason Tabby is or is not ready right now?"
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            headerSection
+            Divider().padding(.bottom, 12)
+            controlsSection
+            permissionsCard
+            footerSection
+        }
+        .padding(16)
+        .frame(width: 340)
+        .onAppear {
+            refreshAppleIntelligenceAvailabilityIfNeeded()
+        }
+        .onChange(of: suggestionSettings.selectedEngine) { _, _ in
+            refreshAppleIntelligenceAvailabilityIfNeeded()
+        }
+    }
+
+    // MARK: - Header
+
+    @ViewBuilder
+    private var headerSection: some View {
+        HStack(alignment: .center) {
+            Text("Tabby")
+                .font(.headline)
+
+            Spacer(minLength: 0)
+
+            StatusPill(text: statusText, color: statusColor)
+        }
+        .padding(.bottom, 12)
+    }
+
+    // MARK: - Quick controls
+
+    /// Session-level preferences that users reach for mid-work: engine choice,
+    /// model selection (when using local llama), and completion length.
+    @ViewBuilder
+    private var controlsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            MenuBarPickerRow(title: "Engine") {
+                Picker("Engine", selection: selectedEngineBinding) {
+                    ForEach(SuggestionEngineKind.allCases) { engine in
+                        Text(engine.displayLabel)
+                            .tag(engine)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+
+            if suggestionSettings.selectedEngine.supportsLocalModelManagement {
+                modelRow
+            }
+
+            MenuBarPickerRow(title: "Length") {
+                Picker("Length", selection: selectedWordCountPresetBinding) {
+                    ForEach(SuggestionWordCountPreset.allCases) { preset in
+                        Text(preset.displayLabel)
+                            .tag(preset)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+        }
+        .padding(.bottom, 12)
+    }
+
+    /// Model selector with folder shortcut — only visible when local llama engine is active.
+    @ViewBuilder
+    private var modelRow: some View {
+        MenuBarPickerRow(title: "Model") {
+            HStack(spacing: 6) {
+                if runtimeModel.availableModels.isEmpty {
+                    Text("No models found")
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                } else {
+                    Picker("Model", selection: selectedModelBinding) {
+                        ForEach(runtimeModel.availableModels) { model in
+                            Text(model.displayName)
+                                .tag(model.filename)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .disabled(runtimePickerDisabled)
+                }
+
+                Button {
+                    modelDownloadManager.openModelsDirectory()
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .help("Open Models Folder")
+            }
+        }
+    }
+
+    // MARK: - Permissions (conditional)
+
+    /// Only appears when at least one permission is missing. Once all are granted, this
+    /// section vanishes — no wasted space on resolved state.
+    @ViewBuilder
+    private var permissionsCard: some View {
+        if !allPermissionsGranted {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Permissions")
+                    .font(.subheadline.weight(.medium))
+                    .padding(.bottom, 2)
+
+                PermissionRow(
+                    title: "Accessibility",
+                    granted: permissionManager.accessibilityGranted,
+                    action: permissionManager.openAccessibilitySettings
+                )
+
+                PermissionRow(
+                    title: "Input Monitoring",
+                    granted: permissionManager.inputMonitoringGranted,
+                    action: permissionManager.openInputMonitoringSettings
+                )
+
+                PermissionRow(
+                    title: "Screen Recording",
+                    granted: permissionManager.screenRecordingGranted,
+                    action: permissionManager.openScreenRecordingSettings
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.bottom, 12)
+        }
+    }
+
+    // MARK: - Footer
+
+    @ViewBuilder
+    private var footerSection: some View {
+        Divider()
+            .padding(.bottom, 10)
+
+        HStack {
+            Button("Settings…", action: onOpenSettings)
+                .buttonStyle(.borderless)
+
+            Spacer(minLength: 0)
+
+            Button("Quit Tabby") {
+                NSApplication.shared.terminate(nil)
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("q")
+        }
+        .font(.subheadline)
+    }
+
+    // MARK: - Bindings
+
+    private var selectedEngineBinding: Binding<SuggestionEngineKind> {
+        Binding(
+            get: { suggestionSettings.selectedEngine },
+            set: { engine in
+                suggestionSettings.selectEngine(engine)
+            }
+        )
+    }
+
+    private var selectedWordCountPresetBinding: Binding<SuggestionWordCountPreset> {
+        Binding(
+            get: { suggestionSettings.selectedWordCountPreset },
+            set: { preset in
+                suggestionSettings.selectWordCountPreset(preset)
+            }
+        )
+    }
+
+    private var selectedModelBinding: Binding<String> {
+        Binding(
+            get: {
+                runtimeModel.selectedModelFilename
+                    ?? runtimeModel.availableModels.first?.filename
+                    ?? ""
+            },
+            set: { filename in
+                Task {
+                    await runtimeModel.selectModel(filename)
+                }
+            }
+        )
+    }
+
+    private var runtimePickerDisabled: Bool {
+        switch runtimeModel.state {
+        case .starting, .loading:
+            return true
+        case .idle, .ready, .failed:
+            return false
+        }
+    }
+
+    // MARK: - Derived state
+
+    private var allPermissionsGranted: Bool {
+        permissionManager.accessibilityGranted
+            && permissionManager.inputMonitoringGranted
+            && permissionManager.screenRecordingGranted
+    }
+
     private var statusText: String {
-        if !permissionManager.accessibilityGranted || !permissionManager.inputMonitoringGranted {
-            return "Permissions Required"
+        if !allPermissionsGranted {
+            return "Setup Needed"
         }
 
         switch suggestionSettings.selectedEngine {
         case .appleIntelligence:
             guard foundationModelAvailabilityService.isAvailable else {
-                return foundationModelAvailabilityService.userVisibleMessage
+                return "Unavailable"
             }
 
             if case .supported = focusModel.snapshot.capability {
@@ -40,8 +258,10 @@ struct MenuBarView: View {
             }
 
             switch runtimeModel.state {
-            case .starting, .loading, .failed:
-                return runtimeModel.state.summary
+            case .starting, .loading:
+                return "Loading…"
+            case .failed:
+                return "Error"
             case .ready:
                 if case .supported = focusModel.snapshot.capability {
                     return "Ready"
@@ -54,35 +274,16 @@ struct MenuBarView: View {
         }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            MenuBarHeaderView()
-
-            MenuBarStatusRow(statusText: statusText)
-
-            Divider()
-
-            MenuBarPermissionsSection(permissionManager: permissionManager)
-
-            MenuBarEngineSection(
-                suggestionSettings: suggestionSettings,
-                runtimeModel: runtimeModel,
-                modelDownloadManager: modelDownloadManager
-            )
-
-            MenuBarSuggestionControlsSection(suggestionSettings: suggestionSettings)
-
-            Divider()
-
-            MenuBarFooterRow(onOpenSettings: onOpenSettings)
-        }
-        .padding(18)
-        .frame(width: 396)
-        .onAppear {
-            refreshAppleIntelligenceAvailabilityIfNeeded()
-        }
-        .onChange(of: suggestionSettings.selectedEngine) { _, _ in
-            refreshAppleIntelligenceAvailabilityIfNeeded()
+    private var statusColor: Color {
+        switch statusText {
+        case "Ready":
+            return .green
+        case "Setup Needed", "Model Missing", "Unavailable":
+            return .orange
+        case "Error":
+            return .red
+        default:
+            return .secondary
         }
     }
 

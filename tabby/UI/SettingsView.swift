@@ -19,6 +19,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            settingsHeader
             updatesSection
             autocompleteSection
 
@@ -47,6 +48,32 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: { model in
             Text("Remove \(model.displayName) from Tabby's local models folder?")
+        }
+    }
+
+    @ViewBuilder
+    private var settingsHeader: some View {
+        Section {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+
+                    Image(systemName: "pawprint.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
+                .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Tabby")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+
+                    Text("Local AI Autocomplete")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

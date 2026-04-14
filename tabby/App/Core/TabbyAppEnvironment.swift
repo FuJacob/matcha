@@ -44,7 +44,9 @@ final class TabbyAppEnvironment {
         let welcomeCoordinator = WelcomeCoordinator(
             permissionManager: permissionManager,
             runtimeModel: runtimeModel,
-            modelDownloadManager: modelDownloadManager
+            modelDownloadManager: modelDownloadManager,
+            suggestionSettings: suggestionSettings,
+            foundationModelAvailabilityService: foundationModelAvailabilityService
         )
         let settingsCoordinator = SettingsCoordinator(
             appUpdateManager: appUpdateManager,

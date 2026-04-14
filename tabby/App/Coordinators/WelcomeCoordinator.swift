@@ -3,7 +3,7 @@ import SwiftUI
 
 /// File overview:
 /// Owns the first-run welcome experience. This type persists whether onboarding has already been
-/// shown and manages the one compact AppKit window that hosts the SwiftUI welcome content.
+/// shown and manages the one compact AppKit window that hosts the SwiftUI welcome wizard.
 ///
 /// We keep this in `App/` instead of `UI/` because it owns lifecycle and persistence, not just
 /// rendering. In React terms, this is a tiny controller/store plus a window host.
@@ -12,6 +12,8 @@ final class WelcomeCoordinator: NSObject, NSWindowDelegate {
     private let permissionManager: PermissionManager
     private let runtimeModel: RuntimeBootstrapModel
     private let modelDownloadManager: ModelDownloadManager
+    private let suggestionSettings: SuggestionSettingsModel
+    private let foundationModelAvailabilityService: FoundationModelAvailabilityService
     private let userDefaults: UserDefaults
 
     private var welcomeWindowController: NSWindowController?
@@ -22,11 +24,15 @@ final class WelcomeCoordinator: NSObject, NSWindowDelegate {
         permissionManager: PermissionManager,
         runtimeModel: RuntimeBootstrapModel,
         modelDownloadManager: ModelDownloadManager,
+        suggestionSettings: SuggestionSettingsModel,
+        foundationModelAvailabilityService: FoundationModelAvailabilityService,
         userDefaults: UserDefaults = .standard
     ) {
         self.permissionManager = permissionManager
         self.runtimeModel = runtimeModel
         self.modelDownloadManager = modelDownloadManager
+        self.suggestionSettings = suggestionSettings
+        self.foundationModelAvailabilityService = foundationModelAvailabilityService
         self.userDefaults = userDefaults
     }
 
@@ -55,23 +61,16 @@ final class WelcomeCoordinator: NSObject, NSWindowDelegate {
                 permissionManager: permissionManager,
                 runtimeModel: runtimeModel,
                 modelDownloadManager: modelDownloadManager,
+                suggestionSettings: suggestionSettings,
+                foundationModelAvailabilityService: foundationModelAvailabilityService,
                 onDismiss: { [weak self] in
                     self?.dismissWelcome()
-                },
-                onOpenAccessibility: { [weak permissionManager] in
-                    permissionManager?.openAccessibilitySettings()
-                },
-                onOpenInputMonitoring: { [weak permissionManager] in
-                    permissionManager?.openInputMonitoringSettings()
-                },
-                onOpenModelsFolder: { [weak modelDownloadManager] in
-                    modelDownloadManager?.openModelsDirectory()
                 }
             )
         )
 
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 460, height: 520),
+            contentRect: CGRect(x: 0, y: 0, width: 480, height: 420),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
