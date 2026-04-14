@@ -1,4 +1,5 @@
 import Combine
+import CoreGraphics
 import Foundation
 
 /// File overview:
@@ -45,6 +46,15 @@ protocol SuggestionInserting: AnyObject {
     var lastErrorMessage: String? { get }
 
     func insert(_ suggestion: String) -> Bool
+}
+
+@MainActor
+protocol SuggestionOverlayControlling: AnyObject {
+    var state: OverlayState { get }
+    var onStateChange: ((OverlayState) -> Void)? { get set }
+
+    func showSuggestion(_ text: String, at caretRect: CGRect)
+    func hide(reason: String)
 }
 
 @MainActor

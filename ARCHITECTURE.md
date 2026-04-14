@@ -28,9 +28,9 @@ The key design rule is separation by responsibility:
 
 Start with these files in order:
 
-1. `tabby/App/TabbyApp.swift`
-2. `tabby/App/AppDelegate.swift`
-3. `tabby/App/TabbyAppEnvironment.swift`
+1. `tabby/App/Core/TabbyApp.swift`
+2. `tabby/App/Core/AppDelegate.swift`
+3. `tabby/App/Core/TabbyAppEnvironment.swift`
 
 `TabbyAppEnvironment` builds the long-lived object graph once. `AppDelegate` owns app lifecycle and cross-subsystem subscriptions. SwiftUI views observe those objects; they do not create them.
 
@@ -42,11 +42,11 @@ The suggestion subsystem is centered on `SuggestionCoordinator`, but it is no lo
 
 Read the coordinator in this order:
 
-1. `tabby/App/SuggestionCoordinator.swift`
-2. `tabby/App/SuggestionCoordinator+Lifecycle.swift`
-3. `tabby/App/SuggestionCoordinator+Input.swift`
-4. `tabby/App/SuggestionCoordinator+Prediction.swift`
-5. `tabby/App/SuggestionCoordinator+Acceptance.swift`
+1. `tabby/App/Coordinators/SuggestionCoordinator.swift`
+2. `tabby/App/Coordinators/SuggestionCoordinator+Lifecycle.swift`
+3. `tabby/App/Coordinators/SuggestionCoordinator+Input.swift`
+4. `tabby/App/Coordinators/SuggestionCoordinator+Prediction.swift`
+5. `tabby/App/Coordinators/SuggestionCoordinator+Acceptance.swift`
 
 The coordinator owns:
 
@@ -61,8 +61,8 @@ The coordinator should not own pure decision rules or low-level OS logic. Those 
 - `tabby/Support/SuggestionRequestFactory.swift`: pure request building
 - `tabby/Support/SuggestionSessionReconciler.swift`: pure session and acceptance rules
 - `tabby/Support/SuggestionAvailabilityEvaluator.swift`: pure gating logic
-- `tabby/Services/VisualContextCoordinator.swift`: screenshot/OCR lifecycle
-- `tabby/Services/LlamaSuggestionEngine.swift`: prompt/result normalization over the runtime
+- `tabby/Services/Visual/VisualContextCoordinator.swift`: screenshot/OCR lifecycle
+- `tabby/Services/Runtime/LlamaSuggestionEngine.swift`: prompt/result normalization over the runtime
 
 ## Focus And Accessibility
 

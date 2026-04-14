@@ -11,9 +11,9 @@ import Foundation
 /// different places.
 @MainActor
 struct SuggestionOverlayPresenter {
-    private let overlayController: OverlayController
+    private let overlayController: any SuggestionOverlayControlling
 
-    init(overlayController: OverlayController) {
+    init(overlayController: any SuggestionOverlayControlling) {
         self.overlayController = overlayController
     }
 

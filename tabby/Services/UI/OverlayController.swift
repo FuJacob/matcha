@@ -9,7 +9,7 @@ import SwiftUI
 /// This separation matters because overlay bugs are often windowing bugs, not state-machine bugs.
 /// By keeping the panel lifecycle here, `SuggestionCoordinator` can stay focused on suggestion logic.
 @MainActor
-final class OverlayController {
+final class OverlayController: SuggestionOverlayControlling {
     var onStateChange: ((OverlayState) -> Void)?
 
     private(set) var state: OverlayState = .hidden(reason: "Overlay idle.") {

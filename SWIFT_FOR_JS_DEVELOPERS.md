@@ -38,12 +38,12 @@ That rule matters because macOS app code gets unmaintainable very quickly when v
 
 Start in this order:
 
-1. [`tabby/App/TabbyApp.swift`](tabby/App/TabbyApp.swift)
-2. [`tabby/App/TabbyAppEnvironment.swift`](tabby/App/TabbyAppEnvironment.swift)
-3. [`tabby/App/AppDelegate.swift`](tabby/App/AppDelegate.swift)
+1. [`tabby/App/Core/TabbyApp.swift`](tabby/App/Core/TabbyApp.swift)
+2. [`tabby/App/Core/TabbyAppEnvironment.swift`](tabby/App/Core/TabbyAppEnvironment.swift)
+3. [`tabby/App/Core/AppDelegate.swift`](tabby/App/Core/AppDelegate.swift)
 4. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-5. [`tabby/App/SuggestionCoordinator.swift`](tabby/App/SuggestionCoordinator.swift) and the `SuggestionCoordinator+*.swift` files
-6. [`tabby/Services/FocusTracker.swift`](tabby/Services/FocusTracker.swift)
+5. [`tabby/App/Coordinators/SuggestionCoordinator.swift`](tabby/App/Coordinators/SuggestionCoordinator.swift) and the `SuggestionCoordinator+*.swift` files
+6. [`tabby/Services/Focus/FocusTracker.swift`](tabby/Services/Focus/FocusTracker.swift)
 7. [`tabby/Support/AXHelper.swift`](tabby/Support/AXHelper.swift)
 
 If you only remember one thing, remember ownership:
@@ -113,8 +113,8 @@ In Tabby, extensions are mostly used for file organization, not monkey-patching.
 
 Example:
 
-- [`tabby/App/SuggestionCoordinator.swift`](tabby/App/SuggestionCoordinator.swift) holds the type definition and shared state
-- [`tabby/App/SuggestionCoordinator+Input.swift`](tabby/App/SuggestionCoordinator+Input.swift) adds input-related methods
+- [`tabby/App/Coordinators/SuggestionCoordinator.swift`](tabby/App/Coordinators/SuggestionCoordinator.swift) holds the type definition and shared state
+- [`tabby/App/Coordinators/SuggestionCoordinator+Input.swift`](tabby/App/Coordinators/SuggestionCoordinator+Input.swift) adds input-related methods
 
 That is roughly like:
 
@@ -264,7 +264,7 @@ In JavaScript terms, this is closer to subscribing to an external state containe
 
 This marks properties inside an observable object that should emit updates.
 
-From [`tabby/App/RuntimeBootstrapModel.swift`](tabby/App/RuntimeBootstrapModel.swift):
+From [`tabby/Models/RuntimeBootstrapModel.swift`](tabby/Models/RuntimeBootstrapModel.swift):
 
 ```swift
 @Published private(set) var state: RuntimeBootstrapState
@@ -312,7 +312,7 @@ That is why heavy runtime work is pushed behind services and async tasks.
 
 Swift's `Task` is roughly "start an async unit of work."
 
-Example from [`tabby/App/RuntimeBootstrapModel.swift`](tabby/App/RuntimeBootstrapModel.swift):
+Example from [`tabby/Models/RuntimeBootstrapModel.swift`](tabby/Models/RuntimeBootstrapModel.swift):
 
 - startup begins in a `Task`
 - the model keeps a reference so duplicate startup does not happen
@@ -367,7 +367,7 @@ So the coordinator pattern here is doing the same job a top-level controller or 
 
 ### Concrete example: `SettingsCoordinator`
 
-Read [`tabby/App/SettingsCoordinator.swift`](tabby/App/SettingsCoordinator.swift).
+Read [`tabby/App/Coordinators/SettingsCoordinator.swift`](tabby/App/Coordinators/SettingsCoordinator.swift).
 
 It owns:
 
@@ -484,7 +484,7 @@ Very rough mapping:
 - `.sink { ... }` subscribes
 - `AnyCancellable` is the subscription token you retain
 
-Example from [`tabby/App/AppDelegate.swift`](tabby/App/AppDelegate.swift):
+Example from [`tabby/App/Core/AppDelegate.swift`](tabby/App/Core/AppDelegate.swift):
 
 ```swift
 permissionManager.$inputMonitoringGranted
@@ -620,7 +620,7 @@ That all happens through Accessibility APIs.
 
 The focus pipeline is:
 
-1. [`tabby/Services/FocusTracker.swift`](tabby/Services/FocusTracker.swift) polls on a timer
+1. [`tabby/Services/Focus/FocusTracker.swift`](tabby/Services/Focus/FocusTracker.swift) polls on a timer
 2. `FocusSnapshotResolver` reduces the raw AX element into a higher-level snapshot
 3. `AXTextGeometryResolver` figures out caret geometry
 4. [`tabby/Support/AXHelper.swift`](tabby/Support/AXHelper.swift) is the low-level bridge to macOS AX APIs
@@ -699,7 +699,7 @@ The main loop is:
 7. reconcile later typing with the active suggestion
 8. accept text on `Tab`
 
-The orchestration center is [`tabby/App/SuggestionCoordinator.swift`](tabby/App/SuggestionCoordinator.swift).
+The orchestration center is [`tabby/App/Coordinators/SuggestionCoordinator.swift`](tabby/App/Coordinators/SuggestionCoordinator.swift).
 
 But that file is intentionally split into multiple extension files so each workflow concern stays readable.
 
@@ -811,7 +811,7 @@ Why:
 
 Read:
 
-- [`tabby/Services/FocusTracker.swift`](tabby/Services/FocusTracker.swift)
+- [`tabby/Services/Focus/FocusTracker.swift`](tabby/Services/Focus/FocusTracker.swift)
 - `FocusSnapshotResolver`
 - [`tabby/Support/AXHelper.swift`](tabby/Support/AXHelper.swift)
 
@@ -827,8 +827,8 @@ Read:
 
 Read:
 
-- [`tabby/App/SuggestionCoordinator.swift`](tabby/App/SuggestionCoordinator.swift)
-- [`tabby/App/SuggestionCoordinator+Input.swift`](tabby/App/SuggestionCoordinator+Input.swift)
+- [`tabby/App/Coordinators/SuggestionCoordinator.swift`](tabby/App/Coordinators/SuggestionCoordinator.swift)
+- [`tabby/App/Coordinators/SuggestionCoordinator+Input.swift`](tabby/App/Coordinators/SuggestionCoordinator+Input.swift)
 - suggestion support helpers in `Support/`
 
 ### "Model/runtime behavior is wrong"
@@ -843,8 +843,8 @@ Read:
 
 Read:
 
-- [`tabby/App/AppDelegate.swift`](tabby/App/AppDelegate.swift)
-- [`tabby/App/SettingsCoordinator.swift`](tabby/App/SettingsCoordinator.swift)
+- [`tabby/App/Core/AppDelegate.swift`](tabby/App/Core/AppDelegate.swift)
+- [`tabby/App/Coordinators/SettingsCoordinator.swift`](tabby/App/Coordinators/SettingsCoordinator.swift)
 - `WelcomeCoordinator`
 - SwiftUI views in `UI/`
 
@@ -871,9 +871,9 @@ When you work on Tabby, these rules will keep you out of trouble:
 After this document, read these in order:
 
 1. [`ARCHITECTURE.md`](ARCHITECTURE.md)
-2. [`tabby/App/TabbyAppEnvironment.swift`](tabby/App/TabbyAppEnvironment.swift)
-3. [`tabby/App/AppDelegate.swift`](tabby/App/AppDelegate.swift)
-4. [`tabby/App/SuggestionCoordinator.swift`](tabby/App/SuggestionCoordinator.swift)
-5. [`tabby/App/SuggestionCoordinator+Input.swift`](tabby/App/SuggestionCoordinator+Input.swift)
-6. [`tabby/Services/FocusTracker.swift`](tabby/Services/FocusTracker.swift)
+2. [`tabby/App/Core/TabbyAppEnvironment.swift`](tabby/App/Core/TabbyAppEnvironment.swift)
+3. [`tabby/App/Core/AppDelegate.swift`](tabby/App/Core/AppDelegate.swift)
+4. [`tabby/App/Coordinators/SuggestionCoordinator.swift`](tabby/App/Coordinators/SuggestionCoordinator.swift)
+5. [`tabby/App/Coordinators/SuggestionCoordinator+Input.swift`](tabby/App/Coordinators/SuggestionCoordinator+Input.swift)
+6. [`tabby/Services/Focus/FocusTracker.swift`](tabby/Services/Focus/FocusTracker.swift)
 7. [`tabby/Support/AXHelper.swift`](tabby/Support/AXHelper.swift)

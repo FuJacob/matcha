@@ -39,7 +39,7 @@ final class SuggestionCoordinator: ObservableObject {
     let permissionManager: any SuggestionPermissionProviding
     let focusModel: any SuggestionFocusProviding
     let inputMonitor: any SuggestionInputMonitoring
-    let overlayController: OverlayController
+    let overlayController: any SuggestionOverlayControlling
     let suggestionInserter: any SuggestionInserting
     let suggestionEngine: any SuggestionGenerating
     let visualContextCoordinator: any VisualContextCoordinating
@@ -62,7 +62,7 @@ final class SuggestionCoordinator: ObservableObject {
         permissionManager: any SuggestionPermissionProviding,
         focusModel: any SuggestionFocusProviding,
         inputMonitor: any SuggestionInputMonitoring,
-        overlayController: OverlayController,
+        overlayController: any SuggestionOverlayControlling,
         suggestionInserter: any SuggestionInserting,
         suggestionEngine: any SuggestionGenerating,
         visualContextCoordinator: any VisualContextCoordinating,
