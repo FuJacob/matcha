@@ -21,6 +21,7 @@ final class TabbyAppEnvironment {
     let welcomeCoordinator: WelcomeCoordinator
     let settingsCoordinator: SettingsCoordinator
     let activationIndicatorController: ActivationIndicatorController
+    let focusDebugOverlayController: FocusDebugOverlayController?
 
     init() {
         let configuration = SuggestionConfiguration.standard
@@ -99,5 +100,8 @@ final class TabbyAppEnvironment {
         self.welcomeCoordinator = welcomeCoordinator
         self.settingsCoordinator = settingsCoordinator
         self.activationIndicatorController = activationIndicatorController
+        self.focusDebugOverlayController = FocusDebugOverlayController.isEnabled
+            ? FocusDebugOverlayController()
+            : nil
     }
 }

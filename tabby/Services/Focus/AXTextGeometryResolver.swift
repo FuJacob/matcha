@@ -9,6 +9,30 @@ import Foundation
 /// Separating geometry heuristics from `FocusTracker` makes compatibility bugs easier to reason
 /// about: if the wrong element is selected, the resolver layer is at fault; if the right element
 /// is selected but the caret anchor is wrong, this geometry layer is the place to debug.
+/// How the caret rect was determined. Exact and derived positions are trustworthy for ghost
+/// text placement; estimated positions are computed from field geometry and character counts —
+/// too imprecise to anchor an overlay, but enough to signal that a field exists.
+enum CaretGeometryQuality {
+    case exact
+    case derived
+    case estimated
+
+    var label: String {
+        switch self {
+        case .exact: return "exact"
+        case .derived: return "derived"
+        case .estimated: return "estimated"
+        }
+    }
+}
+
+/// Pairs a caret rect with the method that produced it, so callers can decide
+/// whether to trust the position or search for a better geometry source.
+struct CaretGeometryResult {
+    let rect: CGRect
+    let quality: CaretGeometryQuality
+}
+
 @MainActor
 struct AXTextGeometryResolver {
     /// Resolves the full input frame that the activation indicator uses as its visual anchor.
@@ -32,7 +56,7 @@ struct AXTextGeometryResolver {
         supportsFrame: Bool,
         cocoaAnchorFrame: CGRect?,
         textValue: String? = nil
-    ) -> CGRect? {
+    ) -> CaretGeometryResult? {
         // Branch 1: Zero-length BoundsForRange at the caret position — ideal case.
         if supportsBoundsForRange,
            let rect = AXHelper.parameterizedRectValue(
@@ -44,7 +68,10 @@ struct AXTextGeometryResolver {
                 fromAccessibilityRect: rect,
                 anchorFrame: cocoaAnchorFrame
             )
-            return normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
+            return CaretGeometryResult(
+                rect: normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect),
+                quality: .exact
+            )
         }
 
         // Branch 1.5: Chromium / WebKit AXTextMarker fallback.
@@ -55,7 +82,10 @@ struct AXTextGeometryResolver {
                 fromAccessibilityRect: markerRect,
                 anchorFrame: cocoaAnchorFrame
             )
-            return normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect)
+            return CaretGeometryResult(
+                rect: normalizedCaretRect(fromZeroLengthRangeRect: cocoaRect),
+                quality: .exact
+            )
         }
 
         // Branch 2: BoundsForRange on the character before the caret, then shift to its trailing edge.
@@ -70,7 +100,24 @@ struct AXTextGeometryResolver {
                 fromAccessibilityRect: rect,
                 anchorFrame: cocoaAnchorFrame
             )
-            return CGRect(x: cocoaRect.maxX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
+            return CaretGeometryResult(
+                rect: CGRect(x: cocoaRect.maxX, y: cocoaRect.minY, width: 2, height: cocoaRect.height),
+                quality: .derived
+            )
+        }
+
+        // Branch 2.5: Child text-run proportional estimation.
+        // Gmail, Outlook, and other Chromium editors fail BoundsForRange entirely but expose
+        // AXStaticText children with tight per-text-run AXFrames. Walk those children to find
+        // which one contains the caret, then estimate position proportionally within its frame.
+        if let parentText = textValue, !parentText.isEmpty {
+            if let result = resolveCaretFromChildTextRuns(
+                element: element,
+                parentSelection: selection,
+                parentText: parentText
+            ) {
+                return result
+            }
         }
 
         // Branch 3: AXFrame fallback — no text-range data available, estimate from element bounds.
@@ -83,12 +130,69 @@ struct AXTextGeometryResolver {
                 let estimatedWidthPerChar: CGFloat = 8.0
                 let estimatedX = cocoaRect.minX + (CGFloat(prefix.count) * estimatedWidthPerChar)
                 let clampedX = min(estimatedX, cocoaRect.maxX)
-                return CGRect(x: clampedX, y: cocoaRect.minY, width: 2, height: cocoaRect.height)
+                return CaretGeometryResult(
+                    rect: CGRect(x: clampedX, y: cocoaRect.minY, width: 2, height: cocoaRect.height),
+                    quality: .estimated
+                )
             }
-            return cocoaRect
+            return CaretGeometryResult(rect: cocoaRect, quality: .estimated)
         }
 
         return nil
+    }
+
+    /// Walks AXStaticText children of a text container to find the one containing the caret,
+    /// then estimates caret position proportionally within that child's AXFrame. This is the
+    /// primary caret resolution path for Gmail, Outlook, and other Chromium editors where
+    /// BoundsForRange fails but per-text-run child frames are precise.
+    private func resolveCaretFromChildTextRuns(
+        element: AXUIElement,
+        parentSelection: NSRange,
+        parentText: String
+    ) -> CaretGeometryResult? {
+        let children = AXHelper.childElements(of: element)
+        guard !children.isEmpty else { return nil }
+
+        // Collect AXStaticText children with text and frames.
+        var textRuns: [(text: String, frame: CGRect)] = []
+        for child in children {
+            let role = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: child)
+            guard role == kAXStaticTextRole as String else { continue }
+            guard let text = AXHelper.stringValue(for: kAXValueAttribute as CFString, on: child),
+                  !text.isEmpty else { continue }
+            guard let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: child),
+                  !frame.isEmpty else { continue }
+            textRuns.append((text, frame))
+        }
+
+        guard !textRuns.isEmpty else { return nil }
+
+        // Find which child contains the caret by matching parent selection against cumulative
+        // text lengths. AX selections use UTF-16 offsets, so we match on NSString length.
+        let caretOffset = parentSelection.location
+        var cumulative = 0
+        for run in textRuns {
+            let runLen = (run.text as NSString).length
+            if caretOffset <= cumulative + runLen {
+                let localOffset = caretOffset - cumulative
+                let fraction = runLen > 0 ? CGFloat(localOffset) / CGFloat(runLen) : 1.0
+                let cocoaFrame = AXHelper.cocoaRect(fromAccessibilityRect: run.frame)
+                let caretX = cocoaFrame.minX + fraction * cocoaFrame.width
+                return CaretGeometryResult(
+                    rect: CGRect(x: caretX, y: cocoaFrame.minY, width: 2, height: cocoaFrame.height),
+                    quality: .derived
+                )
+            }
+            cumulative += runLen
+        }
+
+        // Caret is past all children (e.g. newline not included in child text).
+        // Use the last child's trailing edge.
+        let lastFrame = AXHelper.cocoaRect(fromAccessibilityRect: textRuns.last!.frame)
+        return CaretGeometryResult(
+            rect: CGRect(x: lastFrame.maxX, y: lastFrame.minY, width: 2, height: lastFrame.height),
+            quality: .derived
+        )
     }
 
     /// Some browser-based editors return a full line fragment for a zero-length range instead of

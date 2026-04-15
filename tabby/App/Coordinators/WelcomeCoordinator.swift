@@ -40,9 +40,9 @@ final class WelcomeCoordinator: NSObject, NSWindowDelegate {
     /// The "shown" bit is persisted at presentation time so first-run onboarding stays one-time
     /// even if the user simply closes the window instead of pressing the button.
     func presentIfNeeded() {
-        guard !userDefaults.bool(forKey: Self.hasShownWelcomeDefaultsKey) else {
-            return
-        }
+//        guard !userDefaults.bool(forKey: Self.hasShownWelcomeDefaultsKey) else {
+//            return
+//        }
 
         userDefaults.set(true, forKey: Self.hasShownWelcomeDefaultsKey)
         showWelcome()

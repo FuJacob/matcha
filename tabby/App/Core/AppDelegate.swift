@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let settingsCoordinator: SettingsCoordinator
 
     private let activationIndicatorController: ActivationIndicatorController
+    private let focusDebugOverlayController: FocusDebugOverlayController?
     private var cancellables = Set<AnyCancellable>()
 
     override init() {
@@ -45,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         welcomeCoordinator = environment.welcomeCoordinator
         settingsCoordinator = environment.settingsCoordinator
         activationIndicatorController = environment.activationIndicatorController
+        focusDebugOverlayController = environment.focusDebugOverlayController
         super.init()
 
         // These closures bridge events across subsystems without forcing those subsystems
@@ -68,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusModel.$snapshot
             .sink { [weak self] snapshot in
                 self?.updateActivationIndicator(for: snapshot)
+                self?.focusDebugOverlayController?.update(for: snapshot)
             }
             .store(in: &cancellables)
 
@@ -91,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Stops long-lived services before process exit so observers and runtime resources detach cleanly.
     func applicationWillTerminate(_ notification: Notification) {
         activationIndicatorController.hide(reason: "Activation indicator hidden because Tabby is terminating.")
+        focusDebugOverlayController?.hide()
         suggestionCoordinator.stop()
         inputMonitor.stop()
         focusModel.stop()

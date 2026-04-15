@@ -103,6 +103,7 @@ struct FocusedInputSnapshot: Equatable {
     let subrole: String?
     let caretRect: CGRect
     let inputFrameRect: CGRect?
+    let caretSource: String
     let precedingText: String
     let trailingText: String
     let selection: NSRange

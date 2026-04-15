@@ -10,9 +10,12 @@ import Foundation
 struct FocusSnapshotResolver {
     private let geometryResolver: AXTextGeometryResolver
 
+    // MARK: - Debug AX tree dump (temporary — remove after caret placement is fixed)
+    /// Set to true to print the AX tree every time focus changes. Check Xcode console.
+    private static let dumpAXTree = true
+    private static var lastDumpedElementID: String?
+
     init(geometryResolver: AXTextGeometryResolver? = nil) {
-        // Construct the default geometry helper inside the actor-isolated initializer for the same
-        // reason described in `FocusTracker`: default argument evaluation is not actor-isolated.
         self.geometryResolver = geometryResolver ?? AXTextGeometryResolver()
     }
 
@@ -26,6 +29,12 @@ struct FocusSnapshotResolver {
         let focusedRole = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: focusedElement) ?? "Unknown"
         let focusedSubrole = AXHelper.stringValue(for: kAXSubroleAttribute as CFString, on: focusedElement)
         let focusedElementIdentifier = AXHelper.elementIdentifier(for: focusedElement, bundleIdentifier: bundleIdentifier)
+
+        // Dump once per element change so it doesn't spam on every poll tick.
+        if Self.dumpAXTree, Self.lastDumpedElementID != focusedElementIdentifier {
+            Self.lastDumpedElementID = focusedElementIdentifier
+            printAXTreeDump(focusedElement: focusedElement, app: applicationName, bundle: bundleIdentifier)
+        }
 
         let candidates = candidateElements(around: focusedElement).map {
             candidateSnapshot(for: $0, bundleIdentifier: bundleIdentifier)
@@ -89,7 +98,27 @@ struct FocusSnapshotResolver {
             )
         }
 
-        guard let caretRect = resolvedCandidate.caretRect else {
+        // The input target and the geometry source don't need to be the same element.
+        // Native AppKit apps give exact caret rects on the input target itself. But Chrome
+        // nests precise geometry on deep AXStaticText leaf nodes while the parent text entry
+        // area only produces a coarse AXFrame estimate. When the primary candidate's geometry
+        // is weak, search deeper for a leaf with exact caret data.
+        let caretRect: CGRect
+        let caretSource: String
+        if let primary = resolvedCandidate.caretRect,
+           resolvedCandidate.caretQuality == .exact || resolvedCandidate.caretQuality == .derived {
+            caretRect = primary
+            caretSource = "\(resolvedCandidate.caretQuality!.label) primary"
+        } else if let deepResult = findDeepGeometrySource(
+            from: focusedElement,
+            cocoaAnchorFrame: resolvedCandidate.inputFrameRect
+        ) {
+            caretRect = deepResult.rect
+            caretSource = "\(deepResult.quality.label) deep"
+        } else if let primary = resolvedCandidate.caretRect {
+            caretRect = primary
+            caretSource = "\(resolvedCandidate.caretQuality?.label ?? "unknown") primary-fallback"
+        } else {
             return FocusSnapshot(
                 applicationName: applicationName,
                 bundleIdentifier: bundleIdentifier,
@@ -111,6 +140,7 @@ struct FocusSnapshotResolver {
             subrole: resolvedCandidate.subrole,
             caretRect: caretRect,
             inputFrameRect: resolvedCandidate.inputFrameRect,
+            caretSource: caretSource,
             precedingText: nsValue.substring(to: safeSelectionLocation),
             trailingText: nsValue.substring(from: trailingStart),
             selection: selection,
@@ -193,6 +223,59 @@ struct FocusSnapshotResolver {
         return ordered
     }
 
+    /// Searches deeper descendants of the focused element for a node with precise caret geometry.
+    ///
+    /// Chrome's AX tree nests live selection data on deep `AXStaticText` leaf nodes that have
+    /// tight per-text-run frames — far more precise than the parent text entry area's AXFrame.
+    /// We only read position from these nodes; the input target (where we type) stays unchanged.
+    private func findDeepGeometrySource(
+        from root: AXUIElement,
+        cocoaAnchorFrame: CGRect?
+    ) -> CaretGeometryResult? {
+        var queue: [(element: AXUIElement, depth: Int)] = [(root, 0)]
+        let maxDepth = 10
+        let maxNodes = 200
+        var visited = 0
+        var seen = Set<String>()
+
+        while !queue.isEmpty, visited < maxNodes {
+            let (element, depth) = queue.removeFirst()
+
+            let identity = AXHelper.elementIdentity(for: element)
+            guard seen.insert(identity).inserted else { continue }
+            visited += 1
+
+            // Look for any node with an active caret (zero-length selection).
+            // Don't filter by role — Chrome uses AXStaticText for editable text runs.
+            if let range = AXHelper.rangeValue(
+                for: kAXSelectedTextRangeAttribute as CFString, on: element
+            ), range.length == 0 {
+                let paramAttrs = Set(AXHelper.parameterizedAttributeNames(on: element))
+                let attrs = Set(AXHelper.attributeNames(on: element))
+                let result = geometryResolver.resolveCaretRect(
+                    for: element,
+                    selection: range,
+                    supportsBoundsForRange: paramAttrs.contains(
+                        kAXBoundsForRangeParameterizedAttribute as String
+                    ),
+                    supportsFrame: attrs.contains("AXFrame"),
+                    cocoaAnchorFrame: cocoaAnchorFrame
+                )
+
+                if let result, result.quality == .exact || result.quality == .derived {
+                    return result
+                }
+            }
+
+            guard depth < maxDepth else { continue }
+            for child in AXHelper.childElements(of: element) {
+                queue.append((child, depth + 1))
+            }
+        }
+
+        return nil
+    }
+
     /// Extracts the AX properties Tabby needs from one candidate element near the current focus.
     private func candidateSnapshot(for element: AXUIElement, bundleIdentifier: String) -> AXFocusCandidate {
         let role = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: element) ?? "Unknown"
@@ -211,7 +294,7 @@ struct FocusSnapshotResolver {
         let inputFrameRect = supportedAttributes.contains("AXFrame")
             ? geometryResolver.resolveInputFrameRect(for: element)
             : nil
-        let caretRect = selection.flatMap {
+        let caretResult = selection.flatMap {
             geometryResolver.resolveCaretRect(
                 for: element,
                 selection: $0,
@@ -221,6 +304,8 @@ struct FocusSnapshotResolver {
                 textValue: textValue
             )
         }
+        let caretRect = caretResult?.rect
+        let caretQuality = caretResult?.quality
         let isSecure = isSecureElement(element: element, role: role, subrole: subrole)
         let elementIdentifier = AXHelper.elementIdentifier(for: element, bundleIdentifier: bundleIdentifier)
         let resolverCandidate = FocusCapabilityCandidate(
@@ -243,6 +328,7 @@ struct FocusSnapshotResolver {
             textValue: textValue,
             selection: selection,
             caretRect: caretRect,
+            caretQuality: caretQuality,
             inputFrameRect: inputFrameRect,
             isSecure: isSecure,
             resolverCandidate: resolverCandidate
@@ -251,8 +337,6 @@ struct FocusSnapshotResolver {
 
     /// Detects secure inputs so Tabby can intentionally refuse to operate in sensitive fields.
     private func isSecureElement(element: AXUIElement, role: String, subrole: String?) -> Bool {
-        // There is no single universal secure-input flag across all host apps, so we fall back to
-        // conservative string matching on the AX metadata that browsers and native apps commonly expose.
         let secureMarkers = [
             role.lowercased(),
             subrole?.lowercased() ?? "",
@@ -263,6 +347,105 @@ struct FocusSnapshotResolver {
         return secureMarkers.contains { marker in
             marker.contains("secure") || marker.contains("password")
         }
+    }
+
+    // MARK: - Debug AX tree dump
+
+    private func printAXTreeDump(focusedElement: AXUIElement, app: String, bundle: String) {
+        var out = "\n========== AX TREE DUMP ==========\n"
+        out += "App: \(app) (\(bundle))\n\n"
+
+        out += "-- Focused + ancestors --\n"
+        var ancestors: [AXUIElement] = [focusedElement]
+        var cur = focusedElement
+        for _ in 0..<3 {
+            guard let p = AXHelper.parentElement(of: cur) else { break }
+            ancestors.append(p)
+            cur = p
+        }
+        for (i, el) in ancestors.enumerated().reversed() {
+            let indent = String(repeating: "  ", count: ancestors.count - 1 - i)
+            out += describeNode(el, indent: indent)
+        }
+
+        out += "\n-- Children (depth 6) --\n"
+        dumpChildrenRecursive(of: focusedElement, into: &out, indent: "", depth: 0)
+
+        out += "========== END DUMP ==========\n"
+        print(out)
+    }
+
+    private func dumpChildrenRecursive(
+        of element: AXUIElement,
+        into out: inout String,
+        indent: String,
+        depth: Int
+    ) {
+        guard depth < 6 else { return }
+        let children = AXHelper.childElements(of: element)
+        for (i, child) in children.prefix(20).enumerated() {
+            out += describeNode(child, indent: "\(indent)[\(i)] ")
+            dumpChildrenRecursive(of: child, into: &out, indent: indent + "  ", depth: depth + 1)
+        }
+        if children.count > 20 {
+            out += "\(indent)  ...+\(children.count - 20) more\n"
+        }
+    }
+
+    private func describeNode(_ el: AXUIElement, indent: String) -> String {
+        let role = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: el) ?? "?"
+        let subrole = AXHelper.stringValue(for: kAXSubroleAttribute as CFString, on: el)
+        let attrs = Set(AXHelper.attributeNames(on: el))
+        let paramAttrs = Set(AXHelper.parameterizedAttributeNames(on: el))
+
+        var s = "\(indent)\(role)"
+        if let sr = subrole { s += " (\(sr))" }
+        s += "\n"
+
+        if let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: el) {
+            let cocoa = AXHelper.cocoaRect(fromAccessibilityRect: frame)
+            s += "\(indent)  frame(AX): \(fmt(frame))  frame(cocoa): \(fmt(cocoa))\n"
+        }
+
+        if attrs.contains(kAXValueAttribute as String),
+           let text = AXHelper.stringValue(for: kAXValueAttribute as CFString, on: el) {
+            let t = text.count > 80 ? String(text.prefix(80)) + "…" : text
+            s += "\(indent)  value: \"\(t.replacingOccurrences(of: "\n", with: "\\n"))\" (len=\(text.count))\n"
+        }
+
+        if let range = AXHelper.rangeValue(for: kAXSelectedTextRangeAttribute as CFString, on: el) {
+            s += "\(indent)  selection: loc=\(range.location) len=\(range.length)\n"
+
+            if paramAttrs.contains(kAXBoundsForRangeParameterizedAttribute as String) {
+                let r = AXHelper.parameterizedRectValue(
+                    for: kAXBoundsForRangeParameterizedAttribute as CFString,
+                    range: NSRange(location: range.location, length: 0),
+                    on: el
+                )
+                if let r, !r.isEmpty {
+                    s += "\(indent)  BoundsForRange(loc,0): \(fmt(r))\n"
+                } else {
+                    s += "\(indent)  BoundsForRange(loc,0): FAILED\n"
+                }
+            }
+        }
+
+        if let mr = AXHelper.textMarkerCaretRect(on: el), !mr.isEmpty {
+            s += "\(indent)  TextMarkerCaret: \(fmt(mr))\n"
+        }
+
+        if let ed = AXHelper.boolValue(for: "AXEditable" as CFString, on: el) {
+            s += "\(indent)  editable: \(ed)\n"
+        }
+
+        let cc = AXHelper.childElements(of: el).count
+        if cc > 0 { s += "\(indent)  children: \(cc)\n" }
+
+        return s
+    }
+
+    private func fmt(_ r: CGRect) -> String {
+        String(format: "(%.0f, %.0f, %.0f×%.0f)", r.origin.x, r.origin.y, r.width, r.height)
     }
 }
 
@@ -275,6 +458,7 @@ private struct AXFocusCandidate {
     let textValue: String?
     let selection: NSRange?
     let caretRect: CGRect?
+    let caretQuality: CaretGeometryQuality?
     let inputFrameRect: CGRect?
     let isSecure: Bool
     let resolverCandidate: FocusCapabilityCandidate
