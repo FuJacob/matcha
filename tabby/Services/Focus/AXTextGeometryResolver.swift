@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
@@ -9,22 +10,6 @@ import Foundation
 /// Separating geometry heuristics from `FocusTracker` makes compatibility bugs easier to reason
 /// about: if the wrong element is selected, the resolver layer is at fault; if the right element
 /// is selected but the caret anchor is wrong, this geometry layer is the place to debug.
-/// How the caret rect was determined. Exact and derived positions are trustworthy for ghost
-/// text placement; estimated positions are computed from field geometry and character counts —
-/// too imprecise to anchor an overlay, but enough to signal that a field exists.
-enum CaretGeometryQuality {
-    case exact
-    case derived
-    case estimated
-
-    var label: String {
-        switch self {
-        case .exact: return "exact"
-        case .derived: return "derived"
-        case .estimated: return "estimated"
-        }
-    }
-}
 
 /// Pairs a caret rect with the method that produced it, so callers can decide
 /// whether to trust the position or search for a better geometry source.
@@ -136,10 +121,11 @@ struct AXTextGeometryResolver {
            let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty {
             let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: frame)
             if cocoaRect.width > 10, let text = textValue {
-                let nsText = text as NSString
-                let prefix = nsText.substring(to: min(selection.location, nsText.length))
-                let estimatedWidthPerChar: CGFloat = 8.0
-                let estimatedX = cocoaRect.minX + (CGFloat(prefix.count) * estimatedWidthPerChar)
+                let estimatedX = conservativeEstimatedCaretX(
+                    in: cocoaRect,
+                    text: text,
+                    selection: selection
+                )
                 let clampedX = min(estimatedX, cocoaRect.maxX)
                 return CaretGeometryResult(
                     rect: CGRect(x: clampedX, y: cocoaRect.minY, width: 2, height: cocoaRect.height),
@@ -150,6 +136,38 @@ struct AXTextGeometryResolver {
         }
 
         return nil
+    }
+
+    /// Best-effort caret estimate when AX exposes only the full field frame.
+    ///
+    /// This path is intentionally conservative. The previous `prefix.count * 8` heuristic drifted
+    /// farther right as more text was accepted, especially in apps whose real font is narrower
+    /// than the hard-coded guess or whose prefix spans multiple lines. We now:
+    /// 1. Measure only the current line fragment after the last newline.
+    /// 2. Use a system-font width estimate as a fallback proxy for rendered width.
+    /// 3. Cap that estimate with a smaller per-character ceiling so we bias toward under-shooting
+    ///    instead of marching the overlay past the real caret.
+    private func conservativeEstimatedCaretX(
+        in cocoaRect: CGRect,
+        text: String,
+        selection: NSRange
+    ) -> CGFloat {
+        let nsText = text as NSString
+        let safeLocation = min(selection.location, nsText.length)
+        let prefix = nsText.substring(to: safeLocation)
+        let currentLinePrefix = prefix.components(separatedBy: .newlines).last ?? prefix
+        let lineNSString = currentLinePrefix as NSString
+
+        let measuredWidth = lineNSString.size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: 14)
+        ]).width
+        let perCharacterCeiling: CGFloat = 6.0
+        let conservativeWidth = min(
+            measuredWidth,
+            CGFloat(lineNSString.length) * perCharacterCeiling
+        )
+
+        return cocoaRect.minX + conservativeWidth
     }
 
     /// Walks AXStaticText children of a text container to find the one containing the caret,

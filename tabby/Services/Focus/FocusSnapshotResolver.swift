@@ -105,11 +105,13 @@ struct FocusSnapshotResolver {
         // is weak, search deeper for a leaf with exact caret data.
         let caretRect: CGRect
         let caretSource: String
+        let caretQuality: CaretGeometryQuality
         let observedCharWidth: CGFloat?
         if let primary = resolvedCandidate.caretRect,
            resolvedCandidate.caretQuality == .exact || resolvedCandidate.caretQuality == .derived {
             caretRect = primary
             caretSource = "\(resolvedCandidate.caretQuality!.label) primary"
+            caretQuality = resolvedCandidate.caretQuality!
             observedCharWidth = resolvedCandidate.observedCharWidth
         } else if let deepResult = findDeepGeometrySource(
             from: focusedElement,
@@ -117,10 +119,12 @@ struct FocusSnapshotResolver {
         ) {
             caretRect = deepResult.rect
             caretSource = "\(deepResult.quality.label) deep"
+            caretQuality = deepResult.quality
             observedCharWidth = deepResult.observedCharWidth
         } else if let primary = resolvedCandidate.caretRect {
             caretRect = primary
             caretSource = "\(resolvedCandidate.caretQuality?.label ?? "unknown") primary-fallback"
+            caretQuality = resolvedCandidate.caretQuality ?? .estimated
             observedCharWidth = resolvedCandidate.observedCharWidth
         } else {
             return FocusSnapshot(
@@ -145,6 +149,7 @@ struct FocusSnapshotResolver {
             caretRect: caretRect,
             inputFrameRect: resolvedCandidate.inputFrameRect,
             caretSource: caretSource,
+            caretQuality: caretQuality,
             observedCharWidth: observedCharWidth,
             precedingText: nsValue.substring(to: safeSelectionLocation),
             trailingText: nsValue.substring(from: trailingStart),

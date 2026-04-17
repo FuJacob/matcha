@@ -92,6 +92,7 @@ extension SuggestionCoordinator {
             let predictedCaret = Self.predictedCaretRect(
                 after: acceptedChunk,
                 oldCaretRect: liveContext.caretRect,
+                caretQuality: liveContext.caretQuality,
                 observedCharWidth: liveContext.observedCharWidth
             )
             presentOverlay(text: advancedSession.remainingText, at: predictedCaret)
@@ -221,23 +222,48 @@ extension SuggestionCoordinator {
     static func predictedCaretRect(
         after insertedChunk: String,
         oldCaretRect: CGRect,
+        caretQuality: CaretGeometryQuality,
         observedCharWidth: CGFloat?
     ) -> CGRect {
+        let measuredWidth = predictedChunkWidth(
+            insertedChunk: insertedChunk,
+            observedCharWidth: observedCharWidth
+        )
         let chunkWidth: CGFloat
-        if let observed = observedCharWidth {
-            chunkWidth = observed * CGFloat(insertedChunk.count)
-        } else {
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 14)
-            ]
-            chunkWidth = (insertedChunk as NSString).size(withAttributes: attrs).width
+
+        switch caretQuality {
+        case .exact, .derived:
+            chunkWidth = measuredWidth
+
+        case .estimated:
+            // Estimated caret geometry is already low-confidence. If we apply the full predicted
+            // shift after every Tab, the overlay can visibly march away from the real caret before
+            // AX catches up. Biasing this branch toward under-shooting keeps the UI responsive
+            // without compounding the resolver's uncertainty.
+            let conservativeCap: CGFloat = 18
+            chunkWidth = min(max(measuredWidth * 0.35, 6), conservativeCap)
         }
+
         return CGRect(
             x: oldCaretRect.origin.x + chunkWidth,
             y: oldCaretRect.origin.y,
             width: oldCaretRect.width,
             height: oldCaretRect.height
         )
+    }
+
+    private static func predictedChunkWidth(
+        insertedChunk: String,
+        observedCharWidth: CGFloat?
+    ) -> CGFloat {
+        if let observed = observedCharWidth {
+            return observed * CGFloat(insertedChunk.count)
+        }
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 14)
+        ]
+        return (insertedChunk as NSString).size(withAttributes: attrs).width
     }
 
     /// Gives the host app ~30ms to process the synthetic keystroke, then forces an AX snapshot

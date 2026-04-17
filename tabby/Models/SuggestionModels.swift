@@ -152,6 +152,7 @@ struct FocusedInputContext: Equatable, Sendable {
     let subrole: String?
     let caretRect: CGRect
     let inputFrameRect: CGRect?
+    let caretQuality: CaretGeometryQuality
     /// Average character width in points observed from AX child frame measurements.
     /// Used by caret prediction after tab insertion to match the target app's actual font.
     let observedCharWidth: CGFloat?
@@ -170,6 +171,7 @@ struct FocusedInputContext: Equatable, Sendable {
         subrole = snapshot.subrole
         caretRect = snapshot.caretRect
         inputFrameRect = snapshot.inputFrameRect
+        caretQuality = snapshot.caretQuality
         observedCharWidth = snapshot.observedCharWidth
         precedingText = snapshot.precedingText
         trailingText = snapshot.trailingText

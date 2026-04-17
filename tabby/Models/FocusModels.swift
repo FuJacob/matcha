@@ -4,6 +4,29 @@ import Foundation
 /// File overview:
 /// Pure data models for focused-input state, AX capability support, and stale-result signatures.
 /// These types let the rest of Tabby reason about focus without depending on raw Accessibility values.
+
+/// Describes how trustworthy the resolved caret rect is.
+///
+/// This distinction matters because not every downstream feature should treat all caret geometry
+/// the same way. Exact and derived rects are safe to anchor UI to aggressively. Estimated rects
+/// are useful for "there is a field here" signaling, but should be handled conservatively to avoid
+/// visibly marching away from the real insertion point.
+enum CaretGeometryQuality: Equatable, Sendable {
+    case exact
+    case derived
+    case estimated
+
+    var label: String {
+        switch self {
+        case .exact:
+            return "exact"
+        case .derived:
+            return "derived"
+        case .estimated:
+            return "estimated"
+        }
+    }
+}
 ///
 /// These are the concrete Accessibility capabilities Tabby needs before it can safely assist a field.
 /// The key lesson is that "editable role" is not enough; we care about operational capability.
@@ -104,6 +127,7 @@ struct FocusedInputSnapshot: Equatable {
     let caretRect: CGRect
     let inputFrameRect: CGRect?
     let caretSource: String
+    let caretQuality: CaretGeometryQuality
     /// Average character width in points observed from AX child frame measurements.
     /// Nil when the caret was resolved via BoundsForRange (no child walk needed).
     let observedCharWidth: CGFloat?
