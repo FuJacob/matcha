@@ -44,6 +44,15 @@ line_length:
 identifier_name:
   min_length: 2
 
+# Demote the rules that ship at `error` severity by default. The workflow is
+# warnings-only today — anything left at `error` would make `swiftlint` exit
+# non-zero and fail the check regardless of our stated intent. These re-promote
+# to `error` when CI graduates to `--strict` and the baseline is cleaned up.
+force_cast:
+  severity: warning
+force_try:
+  severity: warning
+
 opt_in_rules:
   - empty_count
   - empty_string
