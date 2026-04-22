@@ -1,0 +1,61 @@
+# PR-time build gate. If xcodebuild fails here, the PR can't merge.
+#
+# Runs on PRs into main AND on pushes to main. The push-to-main run exists
+# so a future README badge can reflect current main health — otherwise the
+# badge would only ever show whichever PR last ran.
+#
+# Why Debug config: the compile surface (every file type-checked) is the
+# same as Release, but Debug is faster and more deterministic. Release-only
+# behavior (dead-code stripping, optimization-dependent bugs) isn't what
+# we're guarding against at PR time.
+
+name: Build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel older runs for the same ref when a new commit arrives. Without this,
+# force-pushes and rapid pushes leave a backlog of stale builds consuming
+# runner minutes for nothing.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: xcodebuild (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin Xcode explicitly. GitHub-hosted runner images drift their default
+      # Xcode without notice, which surfaces as false-red or false-green
+      # builds. Bump `xcode-version` deliberately when the project is known
+      # to support a newer one.
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # CODE_SIGNING_ALLOWED=NO because CI runners don't have the dev cert.
+      # The project uses Automatic signing, so we can't simply strip the team
+      # identifier without pbxproj surgery — disabling signing for the build
+      # check keeps the check focused on compile correctness.
+      - name: Build
+        run: |
+          xcodebuild \
+            -project tabby.xcodeproj \
+            -scheme tabby \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
