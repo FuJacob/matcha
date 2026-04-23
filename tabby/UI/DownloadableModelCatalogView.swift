@@ -18,7 +18,8 @@ struct DownloadableModelCatalogView: View {
                 DownloadableModelRow(
                     model: model,
                     state: modelDownloadManager.state(for: model),
-                    onDownload: { modelDownloadManager.download(model) }
+                    onDownload: { modelDownloadManager.download(model) },
+                    onCancel: { modelDownloadManager.cancel(filename: model.filename) }
                 )
             }
 
@@ -58,6 +59,7 @@ private struct DownloadableModelRow: View {
     let model: DownloadableRuntimeModel
     let state: ModelDownloadState
     let onDownload: () -> Void
+    let onCancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -100,15 +102,30 @@ private struct DownloadableModelRow: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
         case .downloading(let progress):
-            if let progress {
-                Text("\(Int((progress * 100).rounded()))%")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.blue)
-                    .frame(width: 40, alignment: .trailing)
-            } else {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 40)
+            HStack(spacing: 6) {
+                if let progress {
+                    Text("\(Int((progress * 100).rounded()))%")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.blue)
+                        .frame(width: 40, alignment: .trailing)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 40)
+                }
+                // Plain SF Symbol button keeps the row compact and matches
+                // the "Get"/"Retry" button affordance scale. Cancel is the
+                // affirmative action while downloading, so it gets the same
+                // visual weight as Get does in the idle state.
+                Button {
+                    onCancel()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Cancel download")
             }
         case .downloaded:
             Image(systemName: "checkmark.circle.fill")

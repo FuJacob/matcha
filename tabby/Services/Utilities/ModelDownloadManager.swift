@@ -126,6 +126,27 @@ final class ModelDownloadManager: ObservableObject {
         downloadTasks[model.filename] = task
     }
 
+    /// User-initiated cancel of an in-flight model download. Idempotent —
+    /// calling it on a filename that isn't downloading is a safe no-op.
+    ///
+    /// Cancellation flow:
+    ///   1. `Task.cancel()` flips `Task.isCancelled` and triggers the
+    ///      `withTaskCancellationHandler` block in the delegate.
+    ///   2. That block calls `URLSessionDownloadTask.cancel()`, which aborts
+    ///      the in-flight download.
+    ///   3. The delegate receives `didCompleteWithError(URLError.cancelled)`
+    ///      and resumes the continuation throwing.
+    ///   4. `performDownload`'s catch routes the error through
+    ///      `DownloadOutcomeClassifier`, sees a user cancel, and restores
+    ///      `.idle` (or `.downloaded` if a prior copy is on disk) — never
+    ///      `.failed`, since the user pressed Cancel deliberately.
+    func cancel(filename: String) {
+        guard let task = downloadTasks[filename] else {
+            return
+        }
+        task.cancel()
+    }
+
     func openModelsDirectory() {
         do {
             try ensureRuntimeDirectoryExists()
@@ -191,14 +212,18 @@ final class ModelDownloadManager: ObservableObject {
 
             modelStates[model.filename] = .downloaded
             onModelDirectoryChanged?()
-        } catch is CancellationError {
-            if isInstalled(model: model) {
-                modelStates[model.filename] = .downloaded
-            } else {
-                modelStates[model.filename] = .idle
-            }
         } catch {
-            modelStates[model.filename] = .failed(error.localizedDescription)
+            // A user-initiated cancel surfaces here as either CancellationError
+            // (cancelled before URLSession ran) or URLError.cancelled
+            // (cancelled while in flight). Both should restore the prior
+            // visible state, not show a failure — the user already knows what
+            // they did. DownloadOutcomeClassifier owns the discrimination so
+            // the rule is unit-tested in isolation.
+            if DownloadOutcomeClassifier.isUserCancellation(error) {
+                modelStates[model.filename] = isInstalled(model: model) ? .downloaded : .idle
+            } else {
+                modelStates[model.filename] = .failed(error.localizedDescription)
+            }
         }
     }
 
@@ -250,6 +275,11 @@ private final class ModelDownloadSessionDelegate: NSObject, URLSessionDownloadDe
     private var downloadedFileURL: URL?
     private var response: URLResponse?
     private var hasCompleted = false
+    // Held so `withTaskCancellationHandler` can call .cancel() on it when the
+    // surrounding Swift Task is cancelled. Without this, Task.cancel() would
+    // only flip Task.isCancelled — the URLSession download would keep running
+    // until natural completion, wasting bytes and ignoring the user's intent.
+    private var activeDownloadTask: URLSessionDownloadTask?
 
     init(progressHandler: @escaping @Sendable (Double?) -> Void) {
         self.progressHandler = progressHandler
@@ -260,10 +290,25 @@ private final class ModelDownloadSessionDelegate: NSObject, URLSessionDownloadDe
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
 
-        return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            let task = session.downloadTask(with: url)
-            task.resume()
+        // withTaskCancellationHandler bridges Swift Task cancellation into the
+        // URLSession world. When `Task.cancel()` runs upstream (e.g., from
+        // ModelDownloadManager.cancel(filename:)), the onCancel block fires and
+        // aborts the URLSession download task. The delegate then receives
+        // didCompleteWithError(URLError.cancelled), which resumes the
+        // continuation throwing — and the catch in performDownload routes it
+        // through DownloadOutcomeClassifier as a user cancel rather than a
+        // hard failure.
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                let task = session.downloadTask(with: url)
+                self.activeDownloadTask = task
+                task.resume()
+            }
+        } onCancel: { [weak self] in
+            // URLSessionDownloadTask.cancel() is thread-safe by Apple's docs,
+            // so calling it from arbitrary cancellation contexts is fine.
+            self?.activeDownloadTask?.cancel()
         }
     }
 
