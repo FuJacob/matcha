@@ -51,7 +51,7 @@ jobs:
   release:
     name: Build, notarize, sign, and publish
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 180
     environment:
       name: github-pages
       url: ${{ steps.deploy-pages.outputs.page_url }}
