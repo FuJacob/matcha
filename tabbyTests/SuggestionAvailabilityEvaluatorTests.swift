@@ -246,108 +246,157 @@ final class FocusSnapshotExternalApplicationIdentityTests: XCTestCase {
 ///
 /// These live beside the evaluator tests because the two pieces form one contract: settings own
 /// persistence, while the evaluator consumes the snapshot produced from those settings.
-@MainActor
 final class SuggestionSettingsModelDisabledAppsTests: XCTestCase {
-    private var suiteNames: [String] = []
+    /// Hosted macOS tests are currently crashing while deallocating short-lived
+    /// `SuggestionSettingsModel` instances. Retaining the models for the full process lifetime
+    /// quarantines that runtime issue so these tests can keep asserting the persistence contract.
+    private static var retainedModels: [SuggestionSettingsModel] = []
+
+    /// Keep the suite object and its name together so teardown clears the exact domain each test
+    /// created. This avoids reaching back through `UserDefaults.standard`, which is a broader
+    /// global API surface than these tests actually need.
+    private var userDefaultsSuites: [(suiteName: String, userDefaults: UserDefaults)] = []
 
     override func tearDown() {
-        for suiteName in suiteNames {
-            UserDefaults.standard.removePersistentDomain(forName: suiteName)
+        for suite in userDefaultsSuites {
+            suite.userDefaults.removePersistentDomain(forName: suite.suiteName)
         }
-        suiteNames.removeAll()
+        userDefaultsSuites.removeAll()
         super.tearDown()
     }
 
     func test_disabledAppRules_surviveModelRecreation() {
-        let userDefaults = makeUserDefaults()
-        let model = makeModel(userDefaults: userDefaults)
+        runOnMainActor {
+            let userDefaults = makeUserDefaults()
+            let model = makeModel(userDefaults: userDefaults)
 
-        model.disableApplication(
-            bundleIdentifier: "com.apple.Safari",
-            displayName: "Safari"
-        )
+            model.disableApplication(
+                bundleIdentifier: "com.apple.Safari",
+                displayName: "Safari"
+            )
 
-        let reloadedModel = makeModel(userDefaults: userDefaults)
+            let reloadedModel = makeModel(userDefaults: userDefaults)
 
-        XCTAssertEqual(
-            reloadedModel.disabledAppRules,
-            [
-                DisabledApplicationRule(
-                    bundleIdentifier: "com.apple.Safari",
-                    displayName: "Safari"
-                )
-            ]
-        )
+            XCTAssertEqual(
+                reloadedModel.disabledAppRules,
+                [
+                    DisabledApplicationRule(
+                        bundleIdentifier: "com.apple.Safari",
+                        displayName: "Safari"
+                    )
+                ]
+            )
+        }
     }
 
     func test_disableApplication_reusesBundleIdentifierInsteadOfDuplicating() {
-        let model = makeModel()
+        runOnMainActor {
+            let model = makeModel()
 
-        model.disableApplication(
-            bundleIdentifier: "com.apple.Safari",
-            displayName: "Safari"
-        )
-        model.disableApplication(
-            bundleIdentifier: "com.apple.Safari",
-            displayName: "Safari Technology Preview"
-        )
+            model.disableApplication(
+                bundleIdentifier: "com.apple.Safari",
+                displayName: "Safari"
+            )
+            model.disableApplication(
+                bundleIdentifier: "com.apple.Safari",
+                displayName: "Safari Technology Preview"
+            )
 
-        XCTAssertEqual(model.disabledAppRules.count, 1)
-        XCTAssertEqual(model.disabledAppRules.first?.displayName, "Safari Technology Preview")
+            XCTAssertEqual(model.disabledAppRules.count, 1)
+            XCTAssertEqual(
+                model.disabledAppRules.first?.displayName,
+                "Safari Technology Preview"
+            )
+        }
     }
 
     func test_removeDisabledApplication_deletesOnlyMatchingBundleIdentifier() {
-        let model = makeModel()
+        runOnMainActor {
+            let model = makeModel()
 
-        model.disableApplication(bundleIdentifier: "com.apple.Safari", displayName: "Safari")
-        model.disableApplication(bundleIdentifier: "com.tinyspeck.slackmacgap", displayName: "Slack")
-        model.removeDisabledApplication(bundleIdentifier: "com.apple.Safari")
+            model.disableApplication(
+                bundleIdentifier: "com.apple.Safari",
+                displayName: "Safari"
+            )
+            model.disableApplication(
+                bundleIdentifier: "com.tinyspeck.slackmacgap",
+                displayName: "Slack"
+            )
+            model.removeDisabledApplication(bundleIdentifier: "com.apple.Safari")
 
-        XCTAssertFalse(model.isApplicationDisabled(bundleIdentifier: "com.apple.Safari"))
-        XCTAssertTrue(model.isApplicationDisabled(bundleIdentifier: "com.tinyspeck.slackmacgap"))
-        XCTAssertEqual(model.disabledAppRules.map(\.bundleIdentifier), ["com.tinyspeck.slackmacgap"])
+            XCTAssertFalse(model.isApplicationDisabled(bundleIdentifier: "com.apple.Safari"))
+            XCTAssertTrue(
+                model.isApplicationDisabled(bundleIdentifier: "com.tinyspeck.slackmacgap")
+            )
+            XCTAssertEqual(
+                model.disabledAppRules.map(\.bundleIdentifier),
+                ["com.tinyspeck.slackmacgap"]
+            )
+        }
     }
 
     func test_snapshotPublisher_emitsWhenDisabledAppRulesChange() {
-        let model = makeModel()
         let expectation = expectation(description: "snapshot emits after app rule changes")
         var cancellables = Set<AnyCancellable>()
 
-        model.snapshotPublisher
-            .dropFirst()
-            .sink { snapshot in
-                XCTAssertTrue(snapshot.disabledAppBundleIdentifiers.contains("com.apple.Safari"))
-                expectation.fulfill()
-            }
-            .store(in: &cancellables)
+        runOnMainActor {
+            let model = makeModel()
 
-        model.disableApplication(
-            bundleIdentifier: "com.apple.Safari",
-            displayName: "Safari"
-        )
+            model.snapshotPublisher
+                .dropFirst()
+                .sink { snapshot in
+                    XCTAssertTrue(snapshot.disabledAppBundleIdentifiers.contains("com.apple.Safari"))
+                    expectation.fulfill()
+                }
+                .store(in: &cancellables)
+
+            model.disableApplication(
+                bundleIdentifier: "com.apple.Safari",
+                displayName: "Safari"
+            )
+        }
 
         wait(for: [expectation], timeout: 1.0)
         _ = cancellables
     }
 
+    @MainActor
     private func makeModel(
         userDefaults: UserDefaults? = nil
     ) -> SuggestionSettingsModel {
-        SuggestionSettingsModel(
+        let model = SuggestionSettingsModel(
             configuration: .standard,
             userDefaults: userDefaults ?? makeUserDefaults()
         )
+        Self.retainedModels.append(model)
+        return model
     }
 
     private func makeUserDefaults() -> UserDefaults {
         let suiteName = "SuggestionSettingsModelDisabledAppsTests-\(UUID().uuidString)"
-        suiteNames.append(suiteName)
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Expected an isolated UserDefaults suite")
             return .standard
         }
 
         userDefaults.removePersistentDomain(forName: suiteName)
+        userDefaultsSuites.append((suiteName: suiteName, userDefaults: userDefaults))
         return userDefaults
+    }
+
+    /// `MainActor.assumeIsolated` lets the compiler treat the closure as main-actor bound once we
+    /// have synchronously hopped to the main thread. This keeps the tests deterministic without
+    /// wrapping each case in a Swift concurrency task, which is the teardown path that was
+    /// crashing during hosted test execution.
+    private func runOnMainActor<Result>(
+        _ body: @MainActor () throws -> Result
+    ) rethrows -> Result {
+        if Thread.isMainThread {
+            return try MainActor.assumeIsolated(body)
+        }
+
+        return try DispatchQueue.main.sync {
+            try MainActor.assumeIsolated(body)
+        }
     }
 }
