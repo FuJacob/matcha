@@ -18,13 +18,15 @@ final class FocusTrackingModel: ObservableObject {
     init(
         pollInterval: TimeInterval,
         permissionProvider: @escaping @MainActor () -> Bool,
-        ignoredBundleIdentifier: String?
+        ignoredBundleIdentifier: String?,
+        chromiumAXWakeService: ChromiumAXWakeService? = nil
     ) {
         self.ignoredBundleIdentifier = ignoredBundleIdentifier
         tracker = FocusTracker(
             pollInterval: pollInterval,
             permissionProvider: permissionProvider,
-            ignoredBundleIdentifier: ignoredBundleIdentifier
+            ignoredBundleIdentifier: ignoredBundleIdentifier,
+            chromiumAXWakeService: chromiumAXWakeService
         )
         snapshot = tracker.snapshot
         latestExternalApplication = tracker.snapshot.externalApplicationIdentity(

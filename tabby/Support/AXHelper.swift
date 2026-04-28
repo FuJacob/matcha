@@ -208,6 +208,14 @@ enum AXHelper {
 
     // MARK: - Tree Traversal
 
+    /// Creates the top-level AX application object for a process.
+    ///
+    /// This is the entry point for app-scoped Chromium wake-up. Unlike `focusedElement()`, this
+    /// does not depend on the app already exposing a focused child node.
+    static func applicationElement(for processIdentifier: pid_t) -> AXUIElement {
+        AXUIElementCreateApplication(processIdentifier)
+    }
+
     /// Returns the currently focused UI element from the system-wide AX object.
     static func focusedElement() -> AXUIElement? {
         let systemWideElement = AXUIElementCreateSystemWide()
@@ -256,6 +264,33 @@ enum AXHelper {
             // Same Core Foundation bridging rule as `focusedElement()`.
             return unsafeBitCast(value, to: AXUIElement.self)
         }
+    }
+
+    /// Returns the owning process identifier for an AX element.
+    static func processIdentifier(for element: AXUIElement) -> pid_t? {
+        var pid: pid_t = 0
+        let result = AXUIElementGetPid(element, &pid)
+        guard result == .success else {
+            return nil
+        }
+
+        return pid
+    }
+
+    /// Writes a boolean Accessibility attribute.
+    ///
+    /// Most of `AXHelper` is read-oriented because Tabby normally consumes host-app AX data rather
+    /// than mutating it. Chromium compatibility is the rare exception: waking the tree requires
+    /// setting `AXManualAccessibility = true` on app and renderer elements.
+    @discardableResult
+    static func setBoolValue(
+        _ value: Bool,
+        for attribute: CFString,
+        on element: AXUIElement
+    ) -> AXError {
+        // `NSNumber` bridges cleanly to the Core Foundation boolean object AX expects here,
+        // while keeping the call site in normal Swift value types instead of optional CF globals.
+        return AXUIElementSetAttributeValue(element, attribute, NSNumber(value: value))
     }
 
     static func elementIdentity(for element: AXUIElement) -> String {

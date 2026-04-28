@@ -22,6 +22,7 @@ final class FocusTracker {
     private let permissionProvider: @MainActor () -> Bool
     private let ignoredBundleIdentifier: String?
     private let snapshotResolver: FocusSnapshotResolver
+    private let chromiumAXWakeService: ChromiumAXWakeService
 
     private var timer: Timer?
 
@@ -29,7 +30,8 @@ final class FocusTracker {
         pollInterval: TimeInterval,
         permissionProvider: @escaping @MainActor () -> Bool,
         ignoredBundleIdentifier: String?,
-        snapshotResolver: FocusSnapshotResolver? = nil
+        snapshotResolver: FocusSnapshotResolver? = nil,
+        chromiumAXWakeService: ChromiumAXWakeService? = nil
     ) {
         self.pollInterval = pollInterval
         self.permissionProvider = permissionProvider
@@ -37,6 +39,7 @@ final class FocusTracker {
         // Default resolver construction must happen inside the actor-isolated initializer body.
         // Swift evaluates default parameter expressions before entering the `@MainActor` context.
         self.snapshotResolver = snapshotResolver ?? FocusSnapshotResolver()
+        self.chromiumAXWakeService = chromiumAXWakeService ?? ChromiumAXWakeService()
     }
 
     /// Starts periodic AX polling and immediately captures an initial snapshot.
@@ -99,6 +102,12 @@ final class FocusTracker {
                 inspection: nil
             )
         }
+
+        // Chromium-family apps may lazily publish an empty AX tree until this compatibility shim
+        // explicitly flips `AXManualAccessibility`. We prime that side effect before reading the
+        // focused node so later poll ticks can observe the now-awake tree through the normal
+        // resolver path.
+        chromiumAXWakeService.prepareIfNeeded(for: application)
 
         guard let focusedElement = AXHelper.focusedElement() else {
             return FocusSnapshot(

@@ -400,3 +400,35 @@ final class SuggestionSettingsModelDisabledAppsTests: XCTestCase {
         }
     }
 }
+
+/// Tests for the pure Chromium-bundle classification rule that gates the AX wake service.
+///
+/// The wake service itself is intentionally hard to unit test because it mutates real AX elements
+/// owned by other processes. The bundle catalog is the deterministic seam that decides whether
+/// that side effect should even run.
+final class ChromiumAccessibilityBundleCatalogTests: XCTestCase {
+    func test_contains_matchesChromeFamilyBundle() {
+        XCTAssertTrue(ChromiumAccessibilityBundleCatalog.contains("com.google.Chrome"))
+    }
+
+    func test_contains_matchesEdgeReleaseChannelByPrefix() {
+        XCTAssertTrue(ChromiumAccessibilityBundleCatalog.contains("com.microsoft.edgemac.Dev"))
+    }
+
+    func test_contains_matchesKnownElectronShells() {
+        XCTAssertTrue(ChromiumAccessibilityBundleCatalog.contains("com.tinyspeck.slackmacgap"))
+        XCTAssertTrue(ChromiumAccessibilityBundleCatalog.contains("com.microsoft.VSCode"))
+        XCTAssertTrue(ChromiumAccessibilityBundleCatalog.contains("com.hnc.Discord"))
+        XCTAssertTrue(ChromiumAccessibilityBundleCatalog.contains("com.todesktop.230313mzl4w4u92"))
+        XCTAssertTrue(ChromiumAccessibilityBundleCatalog.contains("com.linear"))
+    }
+
+    func test_contains_returnsFalseForNonChromiumBundle() {
+        XCTAssertFalse(ChromiumAccessibilityBundleCatalog.contains("com.apple.Safari"))
+    }
+
+    func test_contains_returnsFalseForMissingBundleIdentifier() {
+        XCTAssertFalse(ChromiumAccessibilityBundleCatalog.contains(nil))
+        XCTAssertFalse(ChromiumAccessibilityBundleCatalog.contains(""))
+    }
+}
