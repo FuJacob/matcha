@@ -139,7 +139,7 @@ struct FocusedInputSnapshot: Equatable {
     /// The signature lets later pipeline stages detect whether a completion result is stale.
     /// This is the same idea you would use in a React app with a derived cache key.
     /// Content-only fingerprint for staleness detection. Deliberately excludes `elementIdentifier`
-    /// because Chrome recycles AX node tokens between polls, making `CFHash`-based identity unstable.
+    /// because Chrome recycles AX node tokens between observations, making `CFHash`-based identity unstable.
     /// Text and selection state is sufficient to detect real content changes.
     var contentSignature: String {
         [
@@ -196,6 +196,21 @@ struct FocusSnapshot: Equatable {
             applicationName: applicationName,
             bundleIdentifier: bundleIdentifier
         )
+    }
+}
+
+/// Debug-only signal that an `AXObserver` notification reached Tabby.
+///
+/// This intentionally stays separate from `FocusSnapshot`: a notification can be useful diagnostic
+/// information even when the resolved focus snapshot does not change. The sequence number gives
+/// Combine/SwiftUI consumers an always-unique value for repeated identical notifications.
+struct FocusObserverEvent: Equatable {
+    let sequence: Int
+    let notificationName: String
+    let occurredAt: Date
+
+    var displayName: String {
+        notificationName.replacingOccurrences(of: "AX", with: "")
     }
 }
 

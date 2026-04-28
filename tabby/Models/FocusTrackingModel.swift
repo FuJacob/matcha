@@ -3,26 +3,27 @@ import Foundation
 
 /// File overview:
 /// Publishes focused-input snapshots to SwiftUI and other main-actor consumers. It keeps
-/// AX polling details hidden behind a small observable interface.
+/// AX observation details hidden behind a small observable interface.
 ///
-/// Bridges the polling tracker into SwiftUI-facing published state.
+/// Bridges the event-driven focus tracker into SwiftUI-facing published state.
 @MainActor
 final class FocusTrackingModel: ObservableObject {
     @Published private(set) var snapshot: FocusSnapshot
     @Published private(set) var latestExternalApplication: FocusedApplicationIdentity?
+    /// Debug-only pulse source for the caret overlay; not used by suggestion generation.
+    @Published private(set) var latestObserverEvent: FocusObserverEvent?
 
     private let tracker: FocusTracker
     private let ignoredBundleIdentifier: String?
     private var isStarted = false
+    private var observerEventSequence = 0
 
     init(
-        pollInterval: TimeInterval,
         permissionProvider: @escaping @MainActor () -> Bool,
         ignoredBundleIdentifier: String?
     ) {
         self.ignoredBundleIdentifier = ignoredBundleIdentifier
         tracker = FocusTracker(
-            pollInterval: pollInterval,
             permissionProvider: permissionProvider,
             ignoredBundleIdentifier: ignoredBundleIdentifier
         )
@@ -35,9 +36,13 @@ final class FocusTrackingModel: ObservableObject {
             self?.snapshot = snapshot
             self?.updateLatestExternalApplication(from: snapshot)
         }
+
+        tracker.onAXNotification = { [weak self] notificationName in
+            self?.publishObserverEvent(named: notificationName)
+        }
     }
 
-    /// Starts focus polling once and treats later calls as a request for an immediate refresh.
+    /// Starts focus observation once and treats later calls as a request for an immediate refresh.
     func start() {
         guard !isStarted else {
             tracker.refreshNow()
@@ -48,14 +53,14 @@ final class FocusTrackingModel: ObservableObject {
         tracker.start()
     }
 
-    /// Stops polling while leaving the last captured snapshot available for UI consumers.
+    /// Stops observation while leaving the last captured snapshot available for UI consumers.
     func stop() {
         isStarted = false
         tracker.stop()
     }
 
     /// A manual refresh is useful when another subsystem already knows "input just changed"
-    /// and wants the latest AX snapshot immediately instead of waiting for the poll timer.
+    /// and wants the latest AX snapshot immediately instead of waiting for an AX notification.
     func refreshNow() {
         tracker.refreshNow()
     }
@@ -84,6 +89,15 @@ final class FocusTrackingModel: ObservableObject {
         }
 
         latestExternalApplication = application
+    }
+
+    private func publishObserverEvent(named notificationName: String) {
+        observerEventSequence += 1
+        latestObserverEvent = FocusObserverEvent(
+            sequence: observerEventSequence,
+            notificationName: notificationName,
+            occurredAt: Date()
+        )
     }
 }
 

@@ -15,6 +15,9 @@ final class FocusDebugOverlayController {
 
     private lazy var caretPanel: NSPanel = makePanel()
     private lazy var framePanel: NSPanel = makePanel()
+    private lazy var observerPulsePanel: NSPanel = makePanel()
+    private var latestCaretRect: CGRect?
+    private var pulseHideTask: Task<Void, Never>?
 
     func update(for snapshot: FocusSnapshot) {
         guard let context = snapshot.context else {
@@ -22,13 +25,54 @@ final class FocusDebugOverlayController {
             return
         }
 
+        latestCaretRect = context.caretRect
         showCaretIndicator(context: context)
         showFrameOutline(context: context)
     }
 
+    /// Flashes when an AX notification reaches `FocusTracker`.
+    ///
+    /// This answers a different question than the caret/frame overlay: "did the observer fire at all?"
+    /// The snapshot may not visibly change for every notification, so this pulse is driven by the raw
+    /// observer event instead of by `FocusSnapshot` updates.
+    func flashAXObserverHit(event: FocusObserverEvent) {
+        pulseHideTask?.cancel()
+
+        let color = event.sequence.isMultiple(of: 2) ? Color.green : Color.cyan
+        let contentView = NSHostingView(rootView: AXObserverPulseView(
+            notificationName: event.displayName,
+            sequence: event.sequence,
+            color: color
+        ))
+        contentView.layoutSubtreeIfNeeded()
+        let contentSize = contentView.fittingSize
+
+        observerPulsePanel.alphaValue = 1
+        observerPulsePanel.contentView = contentView
+        observerPulsePanel.setFrame(
+            CGRect(origin: pulseOrigin(for: contentSize), size: contentSize).integral,
+            display: true
+        )
+        observerPulsePanel.orderFrontRegardless()
+
+        pulseHideTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            self?.observerPulsePanel.orderOut(nil)
+            self?.pulseHideTask = nil
+        }
+    }
+
     func hide() {
+        latestCaretRect = nil
+        pulseHideTask?.cancel()
+        pulseHideTask = nil
         caretPanel.orderOut(nil)
         framePanel.orderOut(nil)
+        observerPulsePanel.orderOut(nil)
     }
 
     // MARK: - Caret indicator
@@ -102,6 +146,23 @@ final class FocusDebugOverlayController {
         if source.contains("derived") { return .yellow }
         return .red
     }
+
+    private func pulseOrigin(for contentSize: CGSize) -> CGPoint {
+        if let latestCaretRect {
+            return CGPoint(
+                x: latestCaretRect.maxX + 8,
+                y: latestCaretRect.maxY + 4
+            )
+        }
+
+        // If the observer fires before we have a supported caret snapshot, keep the pulse visible
+        // near the top-right of the active screen so the debug signal is still discoverable.
+        let screenFrame = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 800, height: 600)
+        return CGPoint(
+            x: screenFrame.maxX - contentSize.width - 20,
+            y: screenFrame.maxY - contentSize.height - 20
+        )
+    }
 }
 
 // MARK: - SwiftUI views
@@ -128,6 +189,32 @@ private struct CaretDebugView: View {
                 .fill(color)
                 .frame(width: 2, height: caretHeight)
         }
+        .fixedSize()
+    }
+}
+
+private struct AXObserverPulseView: View {
+    let notificationName: String
+    let sequence: Int
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+
+            Text("AX \(sequence) \(notificationName)")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundStyle(.black)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(
+            Capsule()
+                .fill(color.opacity(0.92))
+        )
         .fixedSize()
     }
 }

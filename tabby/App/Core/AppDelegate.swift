@@ -84,6 +84,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        focusModel.$latestObserverEvent
+            .compactMap { $0 }
+            .sink { [weak self] event in
+                self?.focusDebugOverlayController?.flashAXObserverHit(event: event)
+            }
+            .store(in: &cancellables)
+
     }
 
     /// Starts runtime and observer services once AppKit reports that app launch finished.

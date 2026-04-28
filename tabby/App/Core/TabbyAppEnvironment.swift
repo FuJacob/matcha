@@ -41,7 +41,6 @@ final class TabbyAppEnvironment {
             suppressionController: suppressionController
         )
         let focusModel = FocusTrackingModel(
-            pollInterval: 0.25,
             permissionProvider: { permissionManager.accessibilityGranted },
             ignoredBundleIdentifier: Bundle.main.bundleIdentifier
         )

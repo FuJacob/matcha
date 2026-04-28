@@ -5,7 +5,7 @@ import Foundation
 /// File overview:
 /// Resolves the most usable editable candidate around the current AX focus and materializes a
 /// stable `FocusSnapshot`. This keeps AX candidate search and snapshot assembly separate from the
-/// timer-driven polling shell in `FocusTracker`.
+/// event-observation shell in `FocusTracker`.
 @MainActor
 struct FocusSnapshotResolver {
     private let geometryResolver: AXTextGeometryResolver
@@ -33,7 +33,7 @@ struct FocusSnapshotResolver {
         let focusedElementIdentifier = AXHelper.elementIdentifier(
             for: focusedElement, bundleIdentifier: bundleIdentifier)
 
-        // Dump once per element change so it doesn't spam on every poll tick.
+        // Dump once per element change so it doesn't spam on repeated focus/value notifications.
         if Self.dumpAXTree, Self.lastDumpedElementID != focusedElementIdentifier {
             Self.lastDumpedElementID = focusedElementIdentifier
             printAXTreeDump(
