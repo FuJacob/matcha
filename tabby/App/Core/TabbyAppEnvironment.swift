@@ -36,6 +36,7 @@ final class TabbyAppEnvironment {
         let suggestionSettings = SuggestionSettingsModel(configuration: configuration)
         let foundationModelAvailabilityService = FoundationModelAvailabilityService()
         let suppressionController = InputSuppressionController()
+        let chromiumAXWakeService = ChromiumAXWakeService()
         let inputMonitor = InputMonitor(
             permissionProvider: { permissionManager.inputMonitoringGranted },
             suppressionController: suppressionController
@@ -43,7 +44,8 @@ final class TabbyAppEnvironment {
         let focusModel = FocusTrackingModel(
             pollInterval: 0.25,
             permissionProvider: { permissionManager.accessibilityGranted },
-            ignoredBundleIdentifier: Bundle.main.bundleIdentifier
+            ignoredBundleIdentifier: Bundle.main.bundleIdentifier,
+            chromiumAXWakeService: chromiumAXWakeService
         )
         let appUpdateManager = AppUpdateManager()
         let launchAtLoginService = LaunchAtLoginService()
