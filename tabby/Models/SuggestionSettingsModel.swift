@@ -17,7 +17,6 @@ final class SuggestionSettingsModel: ObservableObject {
     @Published private(set) var customSuggestionTextColorHex: String?
     @Published private(set) var selectedEngine: SuggestionEngineKind
     @Published private(set) var selectedWordCountPreset: SuggestionWordCountPreset
-    @Published private(set) var streamingAutocompleteEnabled: Bool
     @Published private(set) var selectedLocalPromptMode: SuggestionPromptMode
     @Published private(set) var customAIInstructions: String
 
@@ -31,7 +30,6 @@ final class SuggestionSettingsModel: ObservableObject {
     private static let customSuggestionTextColorHexDefaultsKey = "tabbyCustomSuggestionTextColorHex"
     private static let selectedEngineDefaultsKey = "selectedSuggestionEngine"
     private static let selectedWordCountPresetDefaultsKey = "selectedSuggestionWordCountPreset"
-    private static let streamingAutocompleteEnabledDefaultsKey = "tabbyStreamingAutocompleteEnabled"
     private static let selectedLocalPromptModeDefaultsKey = "selectedLocalSuggestionPromptMode"
     private static let customAIInstructionsDefaultsKey = "tabbyCustomAIInstructions"
 
@@ -59,8 +57,6 @@ final class SuggestionSettingsModel: ObservableObject {
             .string(forKey: Self.selectedWordCountPresetDefaultsKey)
             .flatMap(SuggestionWordCountPreset.init(rawValue:))
             ?? configuration.defaultWordCountPreset
-        let resolvedStreamingAutocompleteEnabled = userDefaults
-            .object(forKey: Self.streamingAutocompleteEnabledDefaultsKey) as? Bool ?? false
         let resolvedLocalPromptMode = userDefaults
             .string(forKey: Self.selectedLocalPromptModeDefaultsKey)
             .flatMap(SuggestionPromptMode.init(rawValue:))
@@ -77,7 +73,6 @@ final class SuggestionSettingsModel: ObservableObject {
         customSuggestionTextColorHex = resolvedCustomSuggestionTextColorHex
         selectedEngine = resolvedEngine
         selectedWordCountPreset = resolvedWordCountPreset
-        streamingAutocompleteEnabled = resolvedStreamingAutocompleteEnabled
         selectedLocalPromptMode = resolvedLocalPromptMode
         customAIInstructions = resolvedCustomAIInstructions
 
@@ -87,7 +82,6 @@ final class SuggestionSettingsModel: ObservableObject {
         persistCustomSuggestionTextColorHex(resolvedCustomSuggestionTextColorHex)
         persistSelectedEngine(resolvedEngine)
         persistSelectedWordCountPreset(resolvedWordCountPreset)
-        persistStreamingAutocompleteEnabled(resolvedStreamingAutocompleteEnabled)
         persistSelectedLocalPromptMode(resolvedLocalPromptMode)
         persistCustomAIInstructions(resolvedCustomAIInstructions)
     }
@@ -115,7 +109,6 @@ final class SuggestionSettingsModel: ObservableObject {
             disabledAppBundleIdentifiers: Set(disabledAppRules.map(\.bundleIdentifier)),
             selectedEngine: selectedEngine,
             selectedWordCountPreset: selectedWordCountPreset,
-            streamingAutocompleteEnabled: streamingAutocompleteEnabled,
             effectivePromptMode: effectivePromptMode,
             customAIInstructions: CustomAIInstructionFormatter.normalized(customAIInstructions)
         )
@@ -137,15 +130,6 @@ final class SuggestionSettingsModel: ObservableObject {
 
         selectedWordCountPreset = preset
         persistSelectedWordCountPreset(preset)
-    }
-
-    func setStreamingAutocompleteEnabled(_ enabled: Bool) {
-        guard streamingAutocompleteEnabled != enabled else {
-            return
-        }
-
-        streamingAutocompleteEnabled = enabled
-        persistStreamingAutocompleteEnabled(enabled)
     }
 
     func selectLocalPromptMode(_ mode: SuggestionPromptMode) {
@@ -297,10 +281,6 @@ final class SuggestionSettingsModel: ObservableObject {
         userDefaults.set(preset.rawValue, forKey: Self.selectedWordCountPresetDefaultsKey)
     }
 
-    private func persistStreamingAutocompleteEnabled(_ enabled: Bool) {
-        userDefaults.set(enabled, forKey: Self.streamingAutocompleteEnabledDefaultsKey)
-    }
-
     private func persistSelectedLocalPromptMode(_ mode: SuggestionPromptMode) {
         userDefaults.set(mode.rawValue, forKey: Self.selectedLocalPromptModeDefaultsKey)
     }
@@ -430,21 +410,16 @@ extension SuggestionSettingsModel: SuggestionSettingsProviding {
                 $selectedEngine,
                 $selectedWordCountPreset
             ),
-            Publishers.CombineLatest(
-                $streamingAutocompleteEnabled,
-                $selectedLocalPromptMode
-            ),
+            $selectedLocalPromptMode,
             $customAIInstructions
         )
-        .map { combinedSettings, streamingAndPromptMode, customAIInstructions in
+        .map { combinedSettings, localPromptMode, customAIInstructions in
             let (globallyEnabled, disabledAppRules, engine, wordCountPreset) = combinedSettings
-            let (streamingAutocompleteEnabled, localPromptMode) = streamingAndPromptMode
             return SuggestionSettingsSnapshot(
                 isGloballyEnabled: globallyEnabled,
                 disabledAppBundleIdentifiers: Set(disabledAppRules.map(\.bundleIdentifier)),
                 selectedEngine: engine,
                 selectedWordCountPreset: wordCountPreset,
-                streamingAutocompleteEnabled: streamingAutocompleteEnabled,
                 effectivePromptMode: Self.effectivePromptMode(
                     engine: engine,
                     localPromptMode: localPromptMode

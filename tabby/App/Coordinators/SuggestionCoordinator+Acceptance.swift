@@ -20,7 +20,7 @@ extension SuggestionCoordinator {
             return passTabThrough(reason: snapshot.capability.summary)
         }
 
-        guard state.canAcceptSuggestion else {
+        guard case .ready = state else {
             return passTabThrough(reason: "Tab passed through because no valid suggestion was ready.")
         }
 
@@ -59,9 +59,7 @@ extension SuggestionCoordinator {
 
         recordAcceptedWords(from: acceptedChunk)
 
-        if !sessionForAcceptance.isStreaming {
-            cancelPredictionWork()
-        }
+        cancelPredictionWork()
 
         switch interactionState.commitAcceptedChunk(
             acceptedChunk,
@@ -87,6 +85,7 @@ extension SuggestionCoordinator {
         case let .advanced(advancedSession, _):
             latestGenerationNumber = liveContext.generation
             applySessionDiagnostics(advancedSession, acceptanceAction: "Accepted next chunk with Tab.")
+            state = .ready(text: advancedSession.remainingText, latency: advancedSession.latency)
             // Predict where the caret will land after the inserted chunk. This eliminates the
             // visible jump where the overlay stays at the old position then snaps rightward
             // when AX catches up 100–250ms later.
@@ -96,19 +95,11 @@ extension SuggestionCoordinator {
                 caretQuality: liveContext.caretQuality,
                 observedCharWidth: liveContext.observedCharWidth
             )
-            if advancedSession.isWaitingForMoreStreamedText {
-                state = .streaming(text: "", latency: advancedSession.latency)
-                hideOverlay(reason: "Overlay hidden while waiting for more streamed suggestion text.")
-            } else {
-                state = advancedSession.isStreaming
-                    ? .streaming(text: advancedSession.remainingText, latency: advancedSession.latency)
-                    : .ready(text: advancedSession.remainingText, latency: advancedSession.latency)
-                presentOverlay(
-                    text: advancedSession.remainingText,
-                    at: predictedCaret,
-                    caretQuality: liveContext.caretQuality
-                )
-            }
+            presentOverlay(
+                text: advancedSession.remainingText,
+                at: predictedCaret,
+                caretQuality: liveContext.caretQuality
+            )
             // Force an early AX refresh so the real caret position corrects any prediction
             // error faster than the normal 250ms poll interval.
             schedulePostInsertionRefresh()
@@ -164,19 +155,12 @@ extension SuggestionCoordinator {
             return true
         }
 
-        if advancedSession.isWaitingForMoreStreamedText {
-            state = .streaming(text: "", latency: advancedSession.latency)
-            hideOverlay(reason: "Overlay hidden while waiting for more streamed suggestion text.")
-        } else {
-            state = advancedSession.isStreaming
-                ? .streaming(text: advancedSession.remainingText, latency: advancedSession.latency)
-                : .ready(text: advancedSession.remainingText, latency: advancedSession.latency)
-            presentOverlay(
-                text: advancedSession.remainingText,
-                at: session.baseContext.caretRect,
-                caretQuality: session.baseContext.caretQuality
-            )
-        }
+        state = .ready(text: advancedSession.remainingText, latency: advancedSession.latency)
+        presentOverlay(
+            text: advancedSession.remainingText,
+            at: session.baseContext.caretRect,
+            caretQuality: session.baseContext.caretQuality
+        )
         logStage(
             "typed-match-advanced",
             workID: currentWorkID,

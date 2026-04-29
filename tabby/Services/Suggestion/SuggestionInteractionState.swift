@@ -50,46 +50,15 @@ final class SuggestionInteractionState {
         clearSuggestion()
     }
 
-    func startSession(
-        fullText: String,
-        liveContext: FocusedInputContext,
-        latency: TimeInterval,
-        isStreaming: Bool = false
-    ) -> ActiveSuggestionSession {
+    func startSession(fullText: String, liveContext: FocusedInputContext, latency: TimeInterval) -> ActiveSuggestionSession {
         let session = ActiveSuggestionSession(
             baseContext: liveContext,
             fullText: fullText,
-            latency: latency,
-            isStreaming: isStreaming
+            latency: latency
         )
         activeSession = session
         pendingInsertionConsumedCount = nil
         return session
-    }
-
-    /// Extends the current session with a newer stable prefix from a streaming backend.
-    /// The accepted prefix is immutable: if new streamed text no longer starts with what the user
-    /// already accepted, the stream belongs to stale model state and must be discarded.
-    func updateStreamingSession(
-        stableText: String,
-        latency: TimeInterval,
-        isStreaming: Bool
-    ) -> ActiveSuggestionSession? {
-        guard let activeSession else {
-            return nil
-        }
-
-        guard stableText.hasPrefix(activeSession.acceptedText) else {
-            return nil
-        }
-
-        let updatedSession = activeSession.withStableText(
-            stableText,
-            isStreaming: isStreaming,
-            latency: latency
-        )
-        self.activeSession = updatedSession
-        return updatedSession
     }
 
     /// Uses process-level identity instead of AX element identity because Chrome recycles
