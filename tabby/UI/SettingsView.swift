@@ -176,7 +176,10 @@ struct SettingsView: View {
 
                 Toggle("Suppress Chat Openers", isOn: firstTokenGatingBinding)
 
-                Text("Blocks instruction-tuned models from starting suggestions with conversational openers like \"Sure,\" or \"Here's\". Open Source engine only.")
+                Text(
+                    "Blocks instruction-tuned models from starting suggestions with "
+                    + "conversational openers like \"Sure,\" or \"Here's\". Open Source engine only."
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
