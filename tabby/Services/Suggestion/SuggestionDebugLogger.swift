@@ -61,85 +61,80 @@ final class SuggestionDebugLogger {
         }
 
         if stage != "generating" {
-            switch (rawOutput, normalizedOutput) {
-            case let (raw?, normalized?):
-                // When generation and normalization diverge, surface both previews in the compact
-                // summary so we can immediately see whether the backend returned text that the
-                // cleanup layer later stripped away.
-                if raw == normalized {
-                    parts.append("output=\(Self.debugPreview(raw))")
-                } else {
-                    parts.append("rawOutput=\(Self.debugPreview(raw))")
-                    parts.append("normalizedOutput=\(Self.debugPreview(normalized))")
-                }
-            case let (raw?, nil):
-                parts.append("rawOutput=\(Self.debugPreview(raw))")
-            case let (nil, normalized?):
-                parts.append("normalizedOutput=\(Self.debugPreview(normalized))")
-            case (nil, nil):
-                break
-            }
-        }
-
-        let summaryLine = parts.joined(separator: " ")
-        logLine(summaryLine)
-
-        if stage == "generating", let prompt {
-            logTextBlock(
-                kind: "prompt",
-                stage: stage,
-                workID: workID,
-                generation: generation,
-                text: prompt
+            appendOutputSummaryParts(
+                to: &parts,
+                rawOutput: rawOutput,
+                normalizedOutput: normalizedOutput
             )
         }
 
+        logLine(parts.joined(separator: " "))
+
+        if stage == "generating", let prompt {
+            logTextBlock(kind: "prompt", stage: stage, workID: workID, generation: generation, text: prompt)
+        }
+
         if stage != "generating" {
-            switch (rawOutput, normalizedOutput) {
-            case let (raw?, normalized?):
-                if raw == normalized {
-                    logTextBlock(
-                        kind: "output",
-                        stage: stage,
-                        workID: workID,
-                        generation: generation,
-                        text: raw
-                    )
-                } else {
-                    logTextBlock(
-                        kind: "raw-output",
-                        stage: stage,
-                        workID: workID,
-                        generation: generation,
-                        text: raw
-                    )
-                    logTextBlock(
-                        kind: "normalized-output",
-                        stage: stage,
-                        workID: workID,
-                        generation: generation,
-                        text: normalized
-                    )
-                }
-            case let (raw?, nil):
-                logTextBlock(
-                    kind: "raw-output",
-                    stage: stage,
-                    workID: workID,
-                    generation: generation,
-                    text: raw
-                )
-            case let (nil, normalized?):
-                logTextBlock(
-                    kind: "normalized-output",
-                    stage: stage,
-                    workID: workID,
-                    generation: generation,
-                    text: normalized
-                )
-            case (nil, nil):
-                break
+            logOutputBlocks(
+                stage: stage,
+                workID: workID,
+                generation: generation,
+                rawOutput: rawOutput,
+                normalizedOutput: normalizedOutput
+            )
+        }
+    }
+
+    /// Appends compact output preview tokens to the running summary parts array.
+    /// Extracted to keep `logStage` cyclomatic complexity within the configured limit.
+    private func appendOutputSummaryParts(
+        to parts: inout [String],
+        rawOutput: String?,
+        normalizedOutput: String?
+    ) {
+        switch (rawOutput, normalizedOutput) {
+        case let (raw?, normalized?):
+            // When generation and normalization diverge, surface both previews in the compact
+            // summary so we can immediately see whether the backend returned text that the
+            // cleanup layer later stripped away.
+            if raw == normalized {
+                parts.append("output=\(Self.debugPreview(raw))")
+            } else {
+                parts.append("rawOutput=\(Self.debugPreview(raw))")
+                parts.append("normalizedOutput=\(Self.debugPreview(normalized))")
             }
+        case let (raw?, nil):
+            parts.append("rawOutput=\(Self.debugPreview(raw))")
+        case let (nil, normalized?):
+            parts.append("normalizedOutput=\(Self.debugPreview(normalized))")
+        case (nil, nil):
+            break
+        }
+    }
+
+    /// Emits full multi-line output blocks for a non-generating stage.
+    /// Extracted to keep `logStage` cyclomatic complexity within the configured limit.
+    private func logOutputBlocks(
+        stage: String,
+        workID: UInt64,
+        generation: UInt64?,
+        rawOutput: String?,
+        normalizedOutput: String?
+    ) {
+        switch (rawOutput, normalizedOutput) {
+        case let (raw?, normalized?):
+            if raw == normalized {
+                logTextBlock(kind: "output", stage: stage, workID: workID, generation: generation, text: raw)
+            } else {
+                logTextBlock(kind: "raw-output", stage: stage, workID: workID, generation: generation, text: raw)
+                logTextBlock(kind: "normalized-output", stage: stage, workID: workID, generation: generation, text: normalized)
+            }
+        case let (raw?, nil):
+            logTextBlock(kind: "raw-output", stage: stage, workID: workID, generation: generation, text: raw)
+        case let (nil, normalized?):
+            logTextBlock(kind: "normalized-output", stage: stage, workID: workID, generation: generation, text: normalized)
+        case (nil, nil):
+            break
         }
     }
 

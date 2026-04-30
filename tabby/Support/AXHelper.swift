@@ -85,8 +85,10 @@ enum AXHelper {
             return nil
         }
 
-        // Safe because we already checked the Core Foundation type id above.
-        let axValue = rawValue as! AXValue
+        // We verified the CF type ID above, so the bit-cast is guaranteed safe.
+        // unsafeBitCast is the correct idiomatic pattern for CF types that bridge
+        // as AnyObject but need a more specific opaque CF wrapper type.
+        let axValue = unsafeBitCast(rawValue, to: AXValue.self)
         guard AXValueGetType(axValue) == .cfRange else {
             return nil
         }
@@ -107,8 +109,8 @@ enum AXHelper {
             return nil
         }
 
-        // Safe because we already checked the Core Foundation type id above.
-        let axValue = rawValue as! AXValue
+        // We verified the CF type ID above, so the bit-cast is guaranteed safe.
+        let axValue = unsafeBitCast(rawValue, to: AXValue.self)
         guard AXValueGetType(axValue) == .cgRect else {
             return nil
         }
@@ -138,8 +140,8 @@ enum AXHelper {
             return nil
         }
 
-        // Safe because we already checked the Core Foundation type id above.
-        let axValue = value as! AXValue
+        // We verified the CF type ID above, so the bit-cast is guaranteed safe.
+        let axValue = unsafeBitCast(value, to: AXValue.self)
         guard AXValueGetType(axValue) == .cgRect else {
             return nil
         }
@@ -180,8 +182,8 @@ enum AXHelper {
             return nil
         }
 
-        // Safe because we already checked the Core Foundation type id above.
-        let axBounds = bounds as! AXValue
+        // We verified the CF type ID above, so the bit-cast is guaranteed safe.
+        let axBounds = unsafeBitCast(bounds, to: AXValue.self)
         guard AXValueGetType(axBounds) == .cgRect else {
             return nil
         }

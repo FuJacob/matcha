@@ -80,13 +80,21 @@ enum SystemSettingsWindowLocator {
         rect.width * rect.height
     }
 
+    /// Named container for per-screen AppKit and CoreGraphics geometry.
+    /// Replaces a 3-member tuple so compactMap closures can name members explicitly.
+    private struct ScreenGeometry {
+        let frame: CGRect
+        let visibleFrame: CGRect
+        let displayBounds: CGRect
+    }
+
     private static func appKitGeometry(from coreGraphicsFrame: CGRect) -> (frame: CGRect, visibleFrame: CGRect) {
-        let screens = NSScreen.screens.compactMap { screen -> (frame: CGRect, visibleFrame: CGRect, displayBounds: CGRect)? in
+        let screens = NSScreen.screens.compactMap { screen -> ScreenGeometry? in
             guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
                 return nil
             }
             let displayID = CGDirectDisplayID(number.uint32Value)
-            return (
+            return ScreenGeometry(
                 frame: screen.frame,
                 visibleFrame: screen.visibleFrame,
                 displayBounds: CGDisplayBounds(displayID)
@@ -96,8 +104,10 @@ enum SystemSettingsWindowLocator {
         let matchedScreen = screens
             .filter { $0.displayBounds.intersects(coreGraphicsFrame) }
             .max { lhs, rhs in
-                lhs.displayBounds.intersection(coreGraphicsFrame).width * lhs.displayBounds.intersection(coreGraphicsFrame).height
-                    < rhs.displayBounds.intersection(coreGraphicsFrame).width * rhs.displayBounds.intersection(coreGraphicsFrame).height
+                lhs.displayBounds.intersection(coreGraphicsFrame).width
+                    * lhs.displayBounds.intersection(coreGraphicsFrame).height
+                    < rhs.displayBounds.intersection(coreGraphicsFrame).width
+                    * rhs.displayBounds.intersection(coreGraphicsFrame).height
             }
 
         guard let matchedScreen else {

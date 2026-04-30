@@ -87,13 +87,7 @@ final class LlamaRuntimeManager: ObservableObject {
     func generate(
         prompt: String,
         cachedPrefixBytes: Int? = nil,
-        maxPredictionTokens: Int,
-        temperature: Double,
-        topK: Int,
-        topP: Double,
-        minP: Double,
-        repetitionPenalty: Double,
-        seed: UInt32? = nil
+        sampling: LlamaSamplingParameters
     ) async throws -> String {
         _ = try await preparedRuntime()
 
@@ -101,13 +95,7 @@ final class LlamaRuntimeManager: ObservableObject {
             return try await core.generate(
                 prompt: prompt,
                 cachedPrefixBytes: cachedPrefixBytes,
-                maxPredictionTokens: maxPredictionTokens,
-                temperature: temperature,
-                topK: topK,
-                topP: topP,
-                minP: minP,
-                repetitionPenalty: repetitionPenalty,
-                seed: seed
+                sampling: sampling
             )
         } catch is CancellationError {
             throw LlamaRuntimeError.cancelled

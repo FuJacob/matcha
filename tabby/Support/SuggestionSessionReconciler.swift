@@ -54,12 +54,17 @@ enum SuggestionSessionReconciler {
     ) -> SuggestionSessionReconciliation {
         let isAwaitingInsertedTextSync = pendingInsertionConsumedCount == session.consumedCharacterCount
 
-        func tolerateTransientPostInsertionLag() -> SuggestionSessionReconciliation {
-            .valid(
-                session: session,
-                advancement: nil,
-                nextPendingInsertionConsumedCount: pendingInsertionConsumedCount
-            )
+        // Inline helper: when the AX lag sentinel is active, tolerate the mismatch for one cycle.
+        // Otherwise the guard produced a genuine divergence, so the session is invalid.
+        func axLagOrInvalid(_ reason: String) -> SuggestionSessionReconciliation {
+            if isAwaitingInsertedTextSync {
+                return .valid(
+                    session: session,
+                    advancement: nil,
+                    nextPendingInsertionConsumedCount: pendingInsertionConsumedCount
+                )
+            }
+            return .invalid(reason)
         }
 
         // Process-level identity check instead of AX element identity. Chrome recycles AX
@@ -81,19 +86,17 @@ enum SuggestionSessionReconciler {
             // active and the prefix before the caret still anchors to the same field content.
             if isAwaitingInsertedTextSync,
                liveContext.precedingText.hasPrefix(session.baseContext.precedingText) {
-                return tolerateTransientPostInsertionLag()
+                return axLagOrInvalid("")  // hasPrefix guard already validated above
             }
             return .invalid("Overlay hidden because text after the caret changed.")
         }
 
         guard liveContext.precedingText.hasPrefix(session.baseContext.precedingText) else {
-            // The inverse Chromium race can also happen: the trailing text is already stable, but
-            // the prefix before the caret still reflects the pre-insertion snapshot. In that case
-            // we again prefer to wait for AX to settle instead of eagerly killing the session.
-            if isAwaitingInsertedTextSync {
-                return tolerateTransientPostInsertionLag()
-            }
-            return .invalid("Overlay hidden because text before the caret no longer matches the suggestion anchor.")
+            // The inverse Chromium race: trailing text is stable but the prefix still reflects
+            // the pre-insertion snapshot. Wait for AX to settle.
+            return axLagOrInvalid(
+                "Overlay hidden because text before the caret no longer matches the suggestion anchor."
+            )
         }
 
         var nextPendingInsertionConsumedCount = pendingInsertionConsumedCount
@@ -101,11 +104,7 @@ enum SuggestionSessionReconciler {
         guard session.fullText.hasPrefix(consumedSuffix) else {
             // If we just inserted via Tab, AX may still show stale text. Trust the sentinel
             // for one reconciliation cycle instead of invalidating the whole session.
-            if isAwaitingInsertedTextSync {
-                return tolerateTransientPostInsertionLag()
-            }
-
-            return .invalid("Overlay hidden because typed text diverged from the active suggestion.")
+            return axLagOrInvalid("Overlay hidden because typed text diverged from the active suggestion.")
         }
 
         // AX caught up (or never lagged) — clear the sentinel.
@@ -116,11 +115,7 @@ enum SuggestionSessionReconciler {
 
         guard consumedSuffix.count >= session.consumedCharacterCount else {
             // Same AX lag protection: if we just Tab-inserted, the preceding text hasn't updated yet.
-            if isAwaitingInsertedTextSync {
-                return tolerateTransientPostInsertionLag()
-            }
-
-            return .invalid("Overlay hidden because the active suggestion was partially undone.")
+            return axLagOrInvalid("Overlay hidden because the active suggestion was partially undone.")
         }
 
         let reconciledSession = session.withConsumedCharacters(consumedSuffix.count)
