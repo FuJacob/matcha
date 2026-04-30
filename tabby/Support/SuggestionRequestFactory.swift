@@ -37,12 +37,14 @@ enum SuggestionRequestFactory {
             configuration: configuration
         )
         let completionLengthInstruction = settings.selectedWordCountPreset.promptInstruction
-        let customAIInstructions = activeCustomAIInstructions(settings: settings)
+        let userName = activeUserName(settings: settings)
+        let userTags = activeUserTags(settings: settings)
         let prompt = buildPrompt(
             context: context,
             prefixText: prefixText,
             completionLengthInstruction: completionLengthInstruction,
-            customAIInstructions: customAIInstructions,
+            userName: userName,
+            userTags: userTags,
             visualContextSummary: visualContextSummary
         )
 
@@ -63,7 +65,8 @@ enum SuggestionRequestFactory {
             randomSeed: configuration.randomSeed,
             maxSuffixCharacters: configuration.maxSuffixCharacters,
             completionLengthInstruction: completionLengthInstruction,
-            customAIInstructions: customAIInstructions,
+            userName: userName,
+            userTags: userTags,
             visualContextSummary: visualContextSummary
         )
 
@@ -78,14 +81,16 @@ enum SuggestionRequestFactory {
         context: FocusedInputContext,
         prefixText: String,
         completionLengthInstruction: String,
-        customAIInstructions: String?,
+        userName: String?,
+        userTags: [String]?,
         visualContextSummary: String?
     ) -> String {
         LlamaPromptRenderer.prompt(
             prefixText: prefixText,
             applicationName: context.applicationName,
             completionLengthInstruction: completionLengthInstruction,
-            customAIInstructions: customAIInstructions,
+            userName: userName,
+            userTags: userTags,
             visualContextSummary: visualContextSummary
         )
     }
@@ -105,10 +110,16 @@ enum SuggestionRequestFactory {
         return trailingWords.isEmpty ? characterWindow : trailingWords
     }
 
-    private static func activeCustomAIInstructions(
+    private static func activeUserName(
         settings: SuggestionSettingsSnapshot
     ) -> String? {
-        return settings.customAIInstructions
+        return settings.userName
+    }
+
+    private static func activeUserTags(
+        settings: SuggestionSettingsSnapshot
+    ) -> [String]? {
+        return settings.userTags
     }
 
     private static func activeMaxPredictionTokens(

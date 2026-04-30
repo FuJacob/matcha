@@ -18,7 +18,8 @@ enum LlamaPromptRenderer {
         prefixText: String,
         applicationName: String,
         completionLengthInstruction: String,
-        customAIInstructions: String?,
+        userName: String?,
+        userTags: [String]?,
         visualContextSummary: String? = nil
     ) -> String {
         var sections = [
@@ -38,10 +39,20 @@ enum LlamaPromptRenderer {
             "- Start immediately with the continuation text.",
         ]
 
-        let customInstructionLines = CustomAIInstructionFormatter.promptSectionLines(from: customAIInstructions)
-        if !customInstructionLines.isEmpty {
+        var profileSections: [String] = []
+        if let name = userName, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            profileSections.append("- The user's name is \(name).")
+        }
+        if let tags = userTags, !tags.isEmpty {
+            let tagsString = tags.joined(separator: ", ")
+            profileSections.append("- Things the user types often include: \(tagsString).")
+        }
+
+        if !profileSections.isEmpty {
             sections.append("")
-            sections.append(contentsOf: customInstructionLines)
+            sections.append("User Profile Context:")
+            sections.append(contentsOf: profileSections)
+            sections.append("- Use this context only when it fits naturally into the continuation.")
         }
 
         sections.append("")

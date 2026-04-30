@@ -35,6 +35,8 @@ struct WelcomeView: View {
             switch step {
             case .welcome:
                 welcomeStep
+            case .profile:
+                profileStep
             case .permissions:
                 permissionsStep
             case .chooseModel:
@@ -62,6 +64,7 @@ struct WelcomeView: View {
 
 private enum WelcomeStep: Int, Comparable {
     case welcome
+    case profile
     case permissions
     case chooseModel
     case done
@@ -77,6 +80,8 @@ private enum WelcomeStep: Int, Comparable {
         switch self {
         case .welcome:
             return NSSize(width: 500, height: 320)
+        case .profile:
+            return NSSize(width: 540, height: 420)
         case .permissions:
             return NSSize(width: 540, height: 480)
         case .chooseModel:
@@ -114,27 +119,39 @@ extension WelcomeView {
             }
 
             WelcomeButton(title: "Get Started") {
-                step = .permissions
+                step = .profile
             }
             .padding(.top, 4)
         }
     }
 }
 
-// MARK: - Step 2: Permissions
+// MARK: - Step 2: Profile
+
+extension WelcomeView {
+    fileprivate var profileStep: some View {
+        WelcomeProfileStepView(
+            suggestionSettings: suggestionSettings,
+            onBack: { step = .welcome },
+            onContinue: { step = .permissions }
+        )
+    }
+}
+
+// MARK: - Step 3: Permissions
 
 extension WelcomeView {
     fileprivate var permissionsStep: some View {
         WelcomePermissionStepView(
             permissionManager: permissionManager,
             permissionGuidanceController: permissionGuidanceController,
-            onBack: { step = .welcome },
+            onBack: { step = .profile },
             onContinue: { step = .chooseModel }
         )
     }
 }
 
-// MARK: - Step 3: Choose Model (combined engine + model)
+// MARK: - Step 4: Choose Model (combined engine + model)
 
 extension WelcomeView {
     fileprivate var chooseModelStep: some View {

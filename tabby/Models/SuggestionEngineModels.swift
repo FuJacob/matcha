@@ -51,7 +51,8 @@ struct SuggestionSettingsSnapshot: Equatable, Sendable {
     let disabledAppBundleIdentifiers: Set<String>
     let selectedEngine: SuggestionEngineKind
     let selectedWordCountPreset: SuggestionWordCountPreset
-    /// Normalized user-authored guidance for Tabby's instruction-rendered completion prompt.
+    /// Normalized user-authored profile data for the instructions-based completion style.
     /// This travels in the snapshot so generation uses the same value the Settings UI shows.
-    let customAIInstructions: String?
+    let userName: String
+    let userTags: [String]
 }
