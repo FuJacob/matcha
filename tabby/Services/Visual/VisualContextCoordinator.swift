@@ -40,12 +40,10 @@ final class VisualContextCoordinator {
     /// the screenshot context should survive normal typing inside the same input.
     func startSessionIfNeeded(for snapshotContext: FocusedInputSnapshot) {
         if let activeAugmentationSession,
-            activeAugmentationSession.elementIdentifier == snapshotContext.elementIdentifier
-        {
+            activeAugmentationSession.elementIdentifier == snapshotContext.elementIdentifier {
             if case .unavailable(let reason) = activeAugmentationSession.status,
                 reason.localizedCaseInsensitiveContains("Screen Recording"),
-                screenRecordingPermissionProvider()
-            {
+                screenRecordingPermissionProvider() {
                 cancel(resetState: true)
             } else {
                 return

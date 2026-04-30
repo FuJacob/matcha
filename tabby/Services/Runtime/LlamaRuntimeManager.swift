@@ -149,8 +149,7 @@ final class LlamaRuntimeManager: ObservableObject {
         let requestedModelFilename = resolvedRuntime.modelFileURL.lastPathComponent
 
         if let cachedRuntime,
-            cachedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL
-        {
+            cachedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL {
             return cachedRuntime
         }
 

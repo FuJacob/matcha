@@ -53,7 +53,7 @@ enum LlamaPromptRenderer {
             "Output contract:",
             "- Plain text only.",
             "- No labels, bullets, markdown, quotes, or explanation.",
-            "- Start immediately with the continuation text.",
+            "- Start immediately with the continuation text."
         ]
 
         let customInstructionLines = CustomAIInstructionFormatter.promptSectionLines(from: customAIInstructions)

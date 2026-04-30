@@ -114,8 +114,7 @@ struct BundledRuntimeLocator {
                 candidate: candidate,
                 preferredModelNames: configuration.preferredModelNames
             ),
-                !modelOptions.isEmpty
-            {
+                !modelOptions.isEmpty {
                 return modelOptions
             }
         }
@@ -126,11 +125,9 @@ struct BundledRuntimeLocator {
     /// Enumerates runtime directories. By default we only load from the user-managed model directory.
     /// An explicit `runtimeDirectoryPath` can override this for tests or advanced local setups.
     private func runtimeCandidates(for configuration: LlamaRuntimeConfiguration)
-        -> [RuntimeCandidate]
-    {
+        -> [RuntimeCandidate] {
         if let runtimeDirectoryPath = configuration.runtimeDirectoryPath,
-            !runtimeDirectoryPath.isEmpty
-        {
+            !runtimeDirectoryPath.isEmpty {
             let runtimeDirectoryURL = URL(fileURLWithPath: runtimeDirectoryPath, isDirectory: true)
             return [
                 RuntimeCandidate(

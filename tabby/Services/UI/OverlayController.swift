@@ -80,7 +80,7 @@ final class OverlayController: SuggestionOverlayControlling {
         let viewIndent: CGFloat
         let panelOriginX: CGFloat
         let containerWidth: CGFloat?
-        
+
         if overflowText != nil, let frameRect = inputFrameRect {
             panelOriginX = frameRect.minX
             viewIndent = max(0, caretRect.maxX + 6 - frameRect.minX)
@@ -178,19 +178,19 @@ final class OverlayController: SuggestionOverlayControlling {
         guard let inputFrameRect = inputFrameRect else {
             return (text, nil)
         }
-        
+
         // Tab keycap takes ~40 points; we reserve 10 points for safe margin.
         let availableWidth = max(0, inputFrameRect.maxX - (caretRect.maxX + 6) - 10)
-        
+
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize)
         ]
-        
+
         let fullWidth = (text as NSString).size(withAttributes: attrs).width
         if fullWidth <= availableWidth {
             return (text, nil)
         }
-        
+
         var lastFitIndex = text.startIndex
         for index in text.indices {
             let substring = text[text.startIndex..<index]
@@ -202,7 +202,7 @@ final class OverlayController: SuggestionOverlayControlling {
                 lastFitIndex = index
             }
         }
-        
+
         // If not even the first word fits, break at the first space or take the whole text.
         if lastFitIndex == text.startIndex {
             if let firstSpace = text.firstIndex(where: { $0.isWhitespace }) {
@@ -211,15 +211,15 @@ final class OverlayController: SuggestionOverlayControlling {
                 lastFitIndex = text.endIndex
             }
         }
-        
+
         let inlineText = String(text[text.startIndex..<lastFitIndex])
         var overflowTextStr = String(text[lastFitIndex..<text.endIndex])
-        
+
         // Trim leading spaces from the overflow text so the wrapped line is flush to the edge
         while overflowTextStr.first?.isWhitespace == true {
             overflowTextStr.removeFirst()
         }
-        
+
         let overflowText = overflowTextStr.isEmpty ? nil : overflowTextStr
         return (inlineText.isEmpty ? text : inlineText, overflowText)
     }
@@ -259,14 +259,14 @@ private struct GhostSuggestionView: View {
                     .foregroundStyle(ghostColor)
                     .lineLimit(1)
                     .padding(.leading, viewIndent)
-                
+
                 HStack(alignment: .lastTextBaseline, spacing: 6) {
                     Text(overflow)
                         .font(.system(size: fontSize))
                         .foregroundStyle(ghostColor)
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
-                    
+
                     GhostTabKeycap()
                 }
             }

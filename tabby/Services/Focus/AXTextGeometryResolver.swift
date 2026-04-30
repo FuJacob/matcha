@@ -61,8 +61,7 @@ struct AXTextGeometryResolver {
                 for: kAXBoundsForRangeParameterizedAttribute as CFString,
                 range: NSRange(location: selection.location, length: 0),
                 on: element
-            ), !rect.isEmpty
-        {
+            ), !rect.isEmpty {
             let cocoaRect = AXHelper.validatedCocoaTextRect(
                 fromAccessibilityRect: rect,
                 anchorFrame: cocoaAnchorFrame
@@ -94,8 +93,7 @@ struct AXTextGeometryResolver {
                 for: kAXBoundsForRangeParameterizedAttribute as CFString,
                 range: NSRange(location: selection.location - 1, length: 1),
                 on: element
-            ), !rect.isEmpty
-        {
+            ), !rect.isEmpty {
             let cocoaRect = AXHelper.validatedCocoaTextRect(
                 fromAccessibilityRect: rect,
                 anchorFrame: cocoaAnchorFrame
@@ -123,8 +121,7 @@ struct AXTextGeometryResolver {
 
         // Branch 3: AXFrame fallback — no text-range data available, estimate from element bounds.
         if supportsFrame,
-            let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty
-        {
+            let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element), !frame.isEmpty {
             let cocoaRect = AXHelper.cocoaRect(fromAccessibilityRect: frame)
             if cocoaRect.width > 10, let text = textValue {
                 let estimatedX = conservativeEstimatedCaretX(
@@ -267,8 +264,7 @@ struct AXTextGeometryResolver {
                 let text = AXHelper.stringValue(for: kAXValueAttribute as CFString, on: element),
                 !text.isEmpty,
                 let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: element),
-                !frame.isEmpty
-            {
+                !frame.isEmpty {
                 runs.append((text, frame))
             }
 

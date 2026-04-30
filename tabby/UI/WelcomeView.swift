@@ -314,7 +314,7 @@ private struct EngineCard: View {
             if isAvailable {
                 action()
             }
-        }) {
+        }, label: {
             HStack(spacing: 14) {
                 EngineArtworkThumbnail(
                     artworkName: artworkName,
@@ -355,7 +355,7 @@ private struct EngineCard: View {
                         lineWidth: isSelected && isAvailable ? 1.5 : 0.5
                     )
             )
-        }
+        })
         .buttonStyle(.plain)
         .disabled(!isAvailable)
     }
@@ -423,8 +423,8 @@ struct WelcomeButton: View {
 struct WelcomeNavigation: View {
     var canGoBack: Bool = false
     var canContinue: Bool = true
-    var disabledHint: String? = nil
-    var onBack: (() -> Void)? = nil
+    var disabledHint: String?
+    var onBack: (() -> Void)?
     let onContinue: () -> Void
 
     var body: some View {

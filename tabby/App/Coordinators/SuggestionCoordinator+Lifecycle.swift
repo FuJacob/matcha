@@ -74,8 +74,7 @@ extension SuggestionCoordinator {
             disabledAppBundleIdentifiers: settingsSnapshot.disabledAppBundleIdentifiers,
             inputMonitoringGranted: permissionManager.inputMonitoringGranted,
             focusSnapshot: focusModel.snapshot
-        )
-        {
+        ) {
             schedulePrediction()
         }
     }

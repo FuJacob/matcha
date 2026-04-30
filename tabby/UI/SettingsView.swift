@@ -517,15 +517,14 @@ struct SettingsView: View {
 
     private var customAIInstructionsDescription: String {
         if suggestionSettings.selectedEngine == .llamaOpenSource,
-            suggestionSettings.effectivePromptMode == .guided
-        {
-            return
-                "These instructions are active right now. Use them to tell Tabby about your tone, language, audience, or formatting preferences."
+            suggestionSettings.effectivePromptMode == .guided {
+            return "These instructions are active right now. " +
+                "Use them to tell Tabby about your tone, language, audience, or formatting preferences."
         }
 
         if suggestionSettings.selectedEngine == .llamaOpenSource {
-            return
-                "These instructions are saved for the Open Source engine. They take effect when Completion Style is set to Use My Instructions."
+            return "These instructions are saved for the Open Source engine. " +
+                "They take effect when Completion Style is set to Use My Instructions."
         }
 
         return

@@ -80,8 +80,7 @@ enum SuggestionSessionReconciler {
             // valid. We allow that transient mismatch only while the post-insertion sentinel is
             // active and the prefix before the caret still anchors to the same field content.
             if isAwaitingInsertedTextSync,
-               liveContext.precedingText.hasPrefix(session.baseContext.precedingText)
-            {
+               liveContext.precedingText.hasPrefix(session.baseContext.precedingText) {
                 return tolerateTransientPostInsertionLag()
             }
             return .invalid("Overlay hidden because text after the caret changed.")
@@ -111,8 +110,7 @@ enum SuggestionSessionReconciler {
 
         // AX caught up (or never lagged) — clear the sentinel.
         if nextPendingInsertionConsumedCount != nil,
-           consumedSuffix.count >= session.consumedCharacterCount
-        {
+           consumedSuffix.count >= session.consumedCharacterCount {
             nextPendingInsertionConsumedCount = nil
         }
 

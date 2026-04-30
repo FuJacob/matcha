@@ -129,8 +129,7 @@ struct WindowScreenshotService {
         if let inputFrameRect = context.inputFrameRect,
            !inputFrameRect.isEmpty,
            inputFrameRect.width <= snapshotDimension * 0.8,
-           inputFrameRect.height <= snapshotDimension * 0.8
-        {
+           inputFrameRect.height <= snapshotDimension * 0.8 {
             return inputFrameRect
         }
 

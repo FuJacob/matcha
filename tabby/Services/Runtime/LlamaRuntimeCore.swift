@@ -67,8 +67,7 @@ actor LlamaRuntimeCore {
         configuration: LlamaRuntimeConfiguration
     ) throws -> PreparedLlamaRuntime {
         if let preparedRuntime,
-           preparedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL
-        {
+           preparedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL {
             return preparedRuntime
         }
 
@@ -611,8 +610,8 @@ actor LlamaRuntimeCore {
                 continue
             }
 
-            let bytes = buffer.prefix(Int(written)).map { UInt8(bitPattern: $0) }
-            return String(decoding: bytes, as: UTF8.self)
+            let data = Data(bytes: buffer.prefix(Int(written)).map { UInt8(bitPattern: $0) })
+            return String(bytes: data, encoding: .utf8) ?? ""
         }
     }
 }

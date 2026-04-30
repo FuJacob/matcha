@@ -14,7 +14,7 @@ enum AXHelper {
         kAXTextFieldRole as String,
         kAXTextAreaRole as String,
         "AXSearchField",
-        kAXComboBoxRole as String,
+        kAXComboBoxRole as String
     ]
 
     private static let knownReadOnlyRoles: Set<String> = [
@@ -22,7 +22,7 @@ enum AXHelper {
         kAXImageRole as String,
         kAXButtonRole as String,
         "AXLink",
-        kAXMenuItemRole as String,
+        kAXMenuItemRole as String
     ]
 
     // MARK: - Attribute Reading
@@ -165,32 +165,32 @@ enum AXHelper {
         // 1. Get the opaque AXTextMarkerRange that represents the current selection/caret.
         let selectedMarkerRangeAttribute = "AXSelectedTextMarkerRange" as CFString
         var markerRangeValue: CFTypeRef?
-        
+
         var result = AXUIElementCopyAttributeValue(element, selectedMarkerRangeAttribute, &markerRangeValue)
         guard result == .success, let markerRange = markerRangeValue else {
             return nil
         }
-        
+
         // 2. Ask the element to compute the bounding box for that exact text marker range.
         let boundsForMarkerRangeAttribute = "AXBoundsForTextMarkerRange" as CFString
         var boundsValue: CFTypeRef?
-        
+
         result = AXUIElementCopyParameterizedAttributeValue(element, boundsForMarkerRangeAttribute, markerRange, &boundsValue)
         guard result == .success, let bounds = boundsValue, CFGetTypeID(bounds) == AXValueGetTypeID() else {
             return nil
         }
-        
+
         // Safe because we already checked the Core Foundation type id above.
         let axBounds = bounds as! AXValue
         guard AXValueGetType(axBounds) == .cgRect else {
             return nil
         }
-        
+
         var rect = CGRect.zero
         guard AXValueGetValue(axBounds, .cgRect, &rect) else {
             return nil
         }
-        
+
         return rect
     }
 

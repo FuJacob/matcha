@@ -114,8 +114,7 @@ struct FocusSnapshotResolver {
         let caretQuality: CaretGeometryQuality
         let observedCharWidth: CGFloat?
         if let primary = resolvedCandidate.caretRect,
-            resolvedCandidate.caretQuality == .exact || resolvedCandidate.caretQuality == .derived
-        {
+            resolvedCandidate.caretQuality == .exact || resolvedCandidate.caretQuality == .derived {
             caretRect = primary
             caretSource = "\(resolvedCandidate.caretQuality!.label) primary"
             caretQuality = resolvedCandidate.caretQuality!
@@ -365,8 +364,7 @@ struct FocusSnapshotResolver {
 
     /// Extracts the AX properties Tabby needs from one candidate element near the current focus.
     private func candidateSnapshot(for element: AXUIElement, bundleIdentifier: String)
-        -> AXFocusCandidate
-    {
+        -> AXFocusCandidate {
         let role = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: element) ?? "Unknown"
         let subrole = AXHelper.stringValue(for: kAXSubroleAttribute as CFString, on: element)
         let supportedAttributes = Set(AXHelper.attributeNames(on: element))
@@ -443,7 +441,7 @@ struct FocusSnapshotResolver {
             AXHelper.stringValue(for: kAXDescriptionAttribute as CFString, on: element)?
                 .lowercased() ?? "",
             AXHelper.stringValue(for: kAXTitleAttribute as CFString, on: element)?.lowercased()
-                ?? "",
+                ?? ""
         ]
 
         return secureMarkers.contains { marker in
@@ -461,12 +459,12 @@ struct FocusSnapshotResolver {
         var ancestors: [AXUIElement] = [focusedElement]
         var cur = focusedElement
         for _ in 0..<3 {
-            guard let p = AXHelper.parentElement(of: cur) else { break }
-            ancestors.append(p)
-            cur = p
+            guard let parent = AXHelper.parentElement(of: cur) else { break }
+            ancestors.append(parent)
+            cur = parent
         }
-        for (i, el) in ancestors.enumerated().reversed() {
-            let indent = String(repeating: "  ", count: ancestors.count - 1 - i)
+        for (idx, el) in ancestors.enumerated().reversed() {
+            let indent = String(repeating: "  ", count: ancestors.count - 1 - idx)
             out += describeNode(el, indent: indent)
         }
 
@@ -485,8 +483,8 @@ struct FocusSnapshotResolver {
     ) {
         guard depth < 6 else { return }
         let children = AXHelper.childElements(of: element)
-        for (i, child) in children.prefix(20).enumerated() {
-            out += describeNode(child, indent: "\(indent)[\(i)] ")
+        for (idx, child) in children.prefix(20).enumerated() {
+            out += describeNode(child, indent: "\(indent)[\(idx)] ")
             dumpChildrenRecursive(of: child, into: &out, indent: indent + "  ", depth: depth + 1)
         }
         if children.count > 20 {
@@ -500,56 +498,55 @@ struct FocusSnapshotResolver {
         let attrs = Set(AXHelper.attributeNames(on: el))
         let paramAttrs = Set(AXHelper.parameterizedAttributeNames(on: el))
 
-        var s = "\(indent)\(role)"
-        if let sr = subrole { s += " (\(sr))" }
-        s += "\n"
+        var line = "\(indent)\(role)"
+        if let sr = subrole { line += " (\(sr))" }
+        line += "\n"
 
         if let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: el) {
             let cocoa = AXHelper.cocoaRect(fromAccessibilityRect: frame)
-            s += "\(indent)  frame(AX): \(fmt(frame))  frame(cocoa): \(fmt(cocoa))\n"
+            line += "\(indent)  frame(AX): \(fmt(frame))  frame(cocoa): \(fmt(cocoa))\n"
         }
 
         if attrs.contains(kAXValueAttribute as String),
-            let text = AXHelper.stringValue(for: kAXValueAttribute as CFString, on: el)
-        {
-            let t = text.count > 80 ? String(text.prefix(80)) + "…" : text
-            s +=
-                "\(indent)  value: \"\(t.replacingOccurrences(of: "\n", with: "\\n"))\" (len=\(text.count))\n"
+            let text = AXHelper.stringValue(for: kAXValueAttribute as CFString, on: el) {
+            let truncated = text.count > 80 ? String(text.prefix(80)) + "…" : text
+            line +=
+                "\(indent)  value: \"\(truncated.replacingOccurrences(of: "\n", with: "\\n"))\" (len=\(text.count))\n"
         }
 
         if let range = AXHelper.rangeValue(for: kAXSelectedTextRangeAttribute as CFString, on: el) {
-            s += "\(indent)  selection: loc=\(range.location) len=\(range.length)\n"
+            line += "\(indent)  selection: loc=\(range.location) len=\(range.length)\n"
 
             if paramAttrs.contains(kAXBoundsForRangeParameterizedAttribute as String) {
-                let r = AXHelper.parameterizedRectValue(
+                let rect = AXHelper.parameterizedRectValue(
                     for: kAXBoundsForRangeParameterizedAttribute as CFString,
                     range: NSRange(location: range.location, length: 0),
                     on: el
                 )
-                if let r, !r.isEmpty {
-                    s += "\(indent)  BoundsForRange(loc,0): \(fmt(r))\n"
+                if let rect, !rect.isEmpty {
+                    line += "\(indent)  BoundsForRange(loc,0): \(fmt(rect))\n"
                 } else {
-                    s += "\(indent)  BoundsForRange(loc,0): FAILED\n"
+                    line += "\(indent)  BoundsForRange(loc,0): FAILED\n"
                 }
             }
         }
 
         if let mr = AXHelper.textMarkerCaretRect(on: el), !mr.isEmpty {
-            s += "\(indent)  TextMarkerCaret: \(fmt(mr))\n"
+            line += "\(indent)  TextMarkerCaret: \(fmt(mr))\n"
         }
 
         if let ed = AXHelper.boolValue(for: "AXEditable" as CFString, on: el) {
-            s += "\(indent)  editable: \(ed)\n"
+            line += "\(indent)  editable: \(ed)\n"
         }
 
         let cc = AXHelper.childElements(of: el).count
-        if cc > 0 { s += "\(indent)  children: \(cc)\n" }
+        if cc > 0 { line += "\(indent)  children: \(cc)\n" }
 
-        return s
+        return line
     }
 
-    private func fmt(_ r: CGRect) -> String {
-        String(format: "(%.0f, %.0f, %.0f×%.0f)", r.origin.x, r.origin.y, r.width, r.height)
+    private func fmt(_ rect: CGRect) -> String {
+        String(format: "(%.0f, %.0f, %.0f×%.0f)", rect.origin.x, rect.origin.y, rect.width, rect.height)
     }
 }
 
