@@ -212,7 +212,8 @@ final class LlamaPromptRendererTests: XCTestCase {
             randomSeed: 42,
             maxSuffixCharacters: 192,
             completionLengthInstruction: "Return only the next few words.",
-            customAIInstructions: nil
+            customAIInstructions: nil,
+            isFirstTokenGatingEnabled: true
         )
     }
 }
