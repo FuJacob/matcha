@@ -1,5 +1,7 @@
 import CoreGraphics
 import Foundation
+import UniformTypeIdentifiers
+import ImageIO
 
 /// File overview:
 /// Converts a newly focused input's surrounding screenshot into OCR text for prompt injection.
@@ -29,11 +31,13 @@ enum ScreenshotContextGenerationError: LocalizedError {
 final class ScreenshotContextGenerator {
     private let screenshotService: WindowScreenshotService
     private let textExtractor: ScreenTextExtractor
+    private let summarizer: VisualContextSummarizing?
     private let configuration: VisualContextConfiguration
 
     init(
         screenshotService: WindowScreenshotService? = nil,
         textExtractor: ScreenTextExtractor? = nil,
+        summarizer: VisualContextSummarizing? = nil,
         configuration: VisualContextConfiguration? = nil
     ) {
         let actualConfig = configuration ?? .default
@@ -44,6 +48,7 @@ final class ScreenshotContextGenerator {
                 maxImageDimension: actualConfig.maxImageDimension,
                 maxRecognizedCharacters: actualConfig.maxRecognizedCharacters
             )
+        self.summarizer = summarizer
         self.configuration = actualConfig
     }
 
@@ -106,17 +111,34 @@ final class ScreenshotContextGenerator {
         let normalizedText = normalizeRecognizedText(extractedText)
         log("context-ocr-ready chars=\(normalizedText.count)")
 
+        #if DEBUG
+        saveDebugScreenshot(screenshot.image, text: extractedText, name: context.applicationName.replacingOccurrences(of: " ", with: "_"))
+        #endif
+
         guard hasMeaningfulSignal(normalizedText) else {
             log("context-unavailable weak-screenshot-signal")
             throw ScreenshotContextGenerationError.unavailable(
                 "The screenshot did not contain enough visible text to build prompt context."
             )
         }
+        
+        let finalContextText: String
+        if let summarizer = summarizer {
+            await onStatusChange?(.summarizingText)
+            do {
+                finalContextText = try await summarizer.summarize(text: normalizedText, applicationName: context.applicationName)
+            } catch {
+                log("context-summarization-failed reason=\(error.localizedDescription)")
+                throw ScreenshotContextGenerationError.failed("Summarization failed: \(error.localizedDescription)")
+            }
+        } else {
+            finalContextText = normalizedText
+        }
 
-        log("context-ready text=\(preview(normalizedText))")
+        log("context-ready text=\(preview(finalContextText))")
 
         return VisualContextExcerpt(
-            text: normalizedText
+            text: finalContextText
         )
     }
 
@@ -151,7 +173,28 @@ final class ScreenshotContextGenerator {
     }
 
     private func log(_ message: String) {
-        _ = message
+        print("[ScreenshotContextGenerator] \(message)")
+    }
+
+    private func saveDebugScreenshot(_ image: CGImage, text: String, name: String) {
+        guard let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first else { return }
+        let url = desktopURL.appendingPathComponent("tabby-debug-screenshots")
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss-SSS"
+        let timestamp = formatter.string(from: Date())
+        
+        let fileURL = url.appendingPathComponent("\(name)_\(timestamp).png")
+        let textURL = url.appendingPathComponent("\(name)_\(timestamp).txt")
+        
+        if let dest = CGImageDestinationCreateWithURL(fileURL as CFURL, UTType.png.identifier as CFString, 1, nil) {
+            CGImageDestinationAddImage(dest, image, nil)
+            CGImageDestinationFinalize(dest)
+            print("[DEBUG] Saved screenshot to: \(fileURL.path)")
+            
+            try? text.write(to: textURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private func preview(_ text: String) -> String {

@@ -20,13 +20,22 @@ extension SuggestionCoordinator {
     }
 
     func handleFocusSnapshotChange(_ snapshot: FocusSnapshot) {
+        // Start capturing visual context for a newly focused input even when predictions are
+        // temporarily disabled (e.g., "text is selected" or "secure field"). The OCR pipeline
+        // is field-scoped and should start as early as possible so context is ready by the
+        // time the user starts typing. Without this, switching between fields can leave the
+        // visual context coordinator dormant if the snapshot is transiently unsupported.
+        if let context = snapshot.context {
+            visualContextCoordinator.startSessionIfNeeded(for: context)
+        }
+
         if let disabledReason = SuggestionAvailabilityEvaluator.disabledReason(
             globallyEnabled: settingsSnapshot.isGloballyEnabled,
             disabledAppBundleIdentifiers: settingsSnapshot.disabledAppBundleIdentifiers,
             inputMonitoringGranted: permissionManager.inputMonitoringGranted,
             focusSnapshot: snapshot
         ) {
-            disablePredictions(reason: disabledReason)
+            disablePredictionsPreservingVisualContext(reason: disabledReason)
         } else {
             handleSupportedSnapshot(snapshot)
         }
@@ -38,10 +47,8 @@ extension SuggestionCoordinator {
             return
         }
 
-        // Legacy screenshot/OCR context capture is disabled for both prompt modes while we rebuild.
-        if visualContextStatus != .idle {
-            visualContextCoordinator.cancel(resetState: true)
-        }
+        // Start capturing visual context for newly focused input.
+        visualContextCoordinator.startSessionIfNeeded(for: focusedContext)
 
         if case .disabled = state {
             state = .idle

@@ -38,9 +38,15 @@ final class VisualContextCoordinator {
     /// Starts one screenshot-derived augmentation session per focused field.
     /// This is intentionally scoped to field identity rather than text generation number because
     /// the screenshot context should survive normal typing inside the same input.
+    ///
+    /// Field identity is checked using both `elementIdentifier` and `focusChangeSequence`.
+    /// `elementIdentifier` alone is unreliable because macOS can recycle `CFHash` values
+    /// across unrelated AX elements. The monotonic `focusChangeSequence` counter provides a
+    /// guaranteed-unique signal that the focus tracker actually observed a new element.
     func startSessionIfNeeded(for snapshotContext: FocusedInputSnapshot) {
         if let activeAugmentationSession,
-            activeAugmentationSession.elementIdentifier == snapshotContext.elementIdentifier
+            activeAugmentationSession.elementIdentifier == snapshotContext.elementIdentifier,
+            activeAugmentationSession.focusChangeSequence == snapshotContext.focusChangeSequence
         {
             if case .unavailable(let reason) = activeAugmentationSession.status,
                 reason.localizedCaseInsensitiveContains("Screen Recording"),
@@ -48,19 +54,22 @@ final class VisualContextCoordinator {
             {
                 cancel(resetState: true)
             } else {
+                log("session-dedup element=\(snapshotContext.elementIdentifier) seq=\(snapshotContext.focusChangeSequence) status=\(activeAugmentationSession.status)")
                 return
             }
         }
 
         cancel(resetState: false)
 
+        let hasPermission = screenRecordingPermissionProvider()
         let initialStatus: VisualContextStatus =
-            screenRecordingPermissionProvider()
+            hasPermission
             ? .capturing
             : .unavailable(Self.permissionMissingReason)
         let session = FocusedInputAugmentationSession(
             sessionID: UUID(),
             elementIdentifier: snapshotContext.elementIdentifier,
+            focusChangeSequence: snapshotContext.focusChangeSequence,
             status: initialStatus,
             excerpt: nil
         )
@@ -70,7 +79,10 @@ final class VisualContextCoordinator {
         status = initialStatus
         publishState()
 
-        guard screenRecordingPermissionProvider() else {
+        log("session-start element=\(snapshotContext.elementIdentifier) seq=\(snapshotContext.focusChangeSequence) permission=\(hasPermission)")
+
+        guard hasPermission else {
+            log("session-blocked missing-screen-recording-permission")
             return
         }
 
@@ -87,6 +99,7 @@ final class VisualContextCoordinator {
                     }
                 )
                 guard !Task.isCancelled else {
+                    log("session-cancelled-after-generate sessionID=\(session.sessionID)")
                     return
                 }
 
@@ -96,10 +109,13 @@ final class VisualContextCoordinator {
                     elementIdentifier: snapshotContext.elementIdentifier
                 )
             } catch is CancellationError {
+                log("session-cancellation sessionID=\(session.sessionID)")
                 return
             } catch let error as ScreenshotContextGenerationError {
+                log("session-error sessionID=\(session.sessionID) error=\(error.localizedDescription)")
                 setStatus(errorStatus(for: error), for: session.sessionID)
             } catch {
+                log("session-error sessionID=\(session.sessionID) error=\(error.localizedDescription)")
                 setStatus(.failed(error.localizedDescription), for: session.sessionID)
             }
         }
@@ -177,6 +193,10 @@ final class VisualContextCoordinator {
 
     private func publishState() {
         onStateChange?(status, latestExcerpt)
+    }
+
+    private func log(_ message: String) {
+        print("[VisualContextCoordinator] \(message)")
     }
 }
 

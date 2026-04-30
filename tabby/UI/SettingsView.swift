@@ -165,19 +165,6 @@ struct SettingsView: View {
                         .tag(preset)
                 }
             }
-
-            if suggestionSettings.selectedEngine.supportsPromptModeSelection {
-                Picker("Completion Style", selection: selectedLocalPromptModeBinding) {
-                    ForEach(suggestionSettings.availablePromptModes) { mode in
-                        Text(mode.displayLabel)
-                            .tag(mode)
-                    }
-                }
-            } else {
-                Text("Completion Style and custom instructions apply to the Open Source engine.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 
@@ -215,7 +202,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var permissionsSection: some View {
         Section("Permissions") {
-            Text("Tabby needs Accessibility and Input Monitoring for autocomplete.")
+            Text("Tabby needs Accessibility, Input Monitoring, and Screen Recording for autocomplete.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -229,6 +216,12 @@ struct SettingsView: View {
                 title: "Input Monitoring",
                 granted: permissionManager.inputMonitoringGranted,
                 action: permissionManager.openInputMonitoringSettings
+            )
+
+            settingsPermissionRow(
+                title: "Screen Recording",
+                granted: permissionManager.screenRecordingGranted,
+                action: permissionManager.openScreenRecordingSettings
             )
         }
     }
@@ -468,15 +461,6 @@ struct SettingsView: View {
         )
     }
 
-    private var selectedLocalPromptModeBinding: Binding<SuggestionPromptMode> {
-        Binding(
-            get: { suggestionSettings.selectedLocalPromptMode },
-            set: { mode in
-                suggestionSettings.selectLocalPromptMode(mode)
-            }
-        )
-    }
-
     private var customAIInstructionsBinding: Binding<String> {
         Binding(
             get: { suggestionSettings.customAIInstructions },
@@ -516,20 +500,8 @@ struct SettingsView: View {
     }
 
     private var customAIInstructionsDescription: String {
-        if suggestionSettings.selectedEngine == .llamaOpenSource,
-            suggestionSettings.effectivePromptMode == .guided
-        {
-            return
-                "These instructions are active right now. Use them to tell Tabby about your tone, language, audience, or formatting preferences."
-        }
-
-        if suggestionSettings.selectedEngine == .llamaOpenSource {
-            return
-                "These instructions are saved for the Open Source engine. They take effect when Completion Style is set to Use My Instructions."
-        }
-
         return
-            "These instructions are saved for the Open Source engine. Apple Intelligence ignores this field."
+            "These instructions are active for autocomplete. Use them to tell Tabby about your tone, language, audience, or formatting preferences."
     }
 
     private var localModelsDescription: String {

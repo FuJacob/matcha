@@ -68,10 +68,12 @@ extension SuggestionCoordinator {
         }
 
         let context = interactionState.materializeContext(from: rawContext)
+        let visualContextSummary = visualContextCoordinator.excerpt(for: context)
         let requestBuildResult = SuggestionRequestFactory.buildRequest(
             context: context,
             settings: settingsSnapshot,
-            configuration: configuration
+            configuration: configuration,
+            visualContextSummary: visualContextSummary
         )
         latestGenerationNumber = context.generation
         latestPromptPreview = requestBuildResult.promptPreview
@@ -316,6 +318,22 @@ extension SuggestionCoordinator {
         cancelPredictionWork()
         resetCachedGenerationContext()
         visualContextCoordinator.cancel(resetState: true)
+        interactionState.resetAll()
+        clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: reason)
+        state = .disabled(reason)
+        latestStageMessage = "Disabled: \(reason)"
+    }
+
+    /// Disables predictions without tearing down the visual context session.
+    ///
+    /// Transient disabled states — "text is selected", "secure field", brief "no focused element"
+    /// between field switches — should not cancel an in-progress OCR pipeline. The visual context
+    /// session is field-scoped and outlives individual prediction cycles; destroying it here would
+    /// force a redundant re-capture when the user starts typing again.
+    func disablePredictionsPreservingVisualContext(reason: String) {
+        cancelPredictionWork()
+        resetCachedGenerationContext()
         interactionState.resetAll()
         clearSuggestion(clearDiagnostics: true)
         hideOverlay(reason: reason)

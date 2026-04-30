@@ -136,6 +136,18 @@ struct FocusedInputSnapshot: Equatable {
     let selection: NSRange
     let isSecure: Bool
 
+    /// Monotonic counter that increments every time a focus-changing AX notification fires
+    /// (`kAXFocusedUIElementChanged`, `kAXFocusedWindowChanged`, app activation, etc.).
+    ///
+    /// `elementIdentifier` is built from `CFHash`, which macOS can recycle when AX nodes are
+    /// destroyed and recreated. That makes `elementIdentifier` unreliable for detecting field
+    /// switches — two genuinely different text fields can produce the same identifier.
+    ///
+    /// This counter gives downstream consumers (especially `VisualContextCoordinator`) a
+    /// guaranteed-unique signal that focus actually changed, independent of hash collisions.
+    /// A default of 0 keeps test and legacy call sites compiling without changes.
+    var focusChangeSequence: UInt64 = 0
+
     /// The signature lets later pipeline stages detect whether a completion result is stale.
     /// This is the same idea you would use in a React app with a derived cache key.
     /// Content-only fingerprint for staleness detection. Deliberately excludes `elementIdentifier`
