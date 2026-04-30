@@ -9,6 +9,7 @@ import XCTest
 /// same string, so every assertion here is deterministic.
 final class LlamaPromptRendererTests: XCTestCase {
 
+
     // MARK: - cache hints
 
     func test_cacheHint_nilBeforeSuccessfulRequestIsRecorded() {
@@ -68,7 +69,8 @@ final class LlamaPromptRendererTests: XCTestCase {
             prefixText: "Once upon",
             applicationName: "Messages",
             completionLengthInstruction: "Keep completion short.",
-            customAIInstructions: nil
+            userName: nil,
+            userTags: nil
         )
 
         XCTAssertTrue(prompt.contains("Task:"), "instruction prompt should include Task section")
@@ -84,7 +86,8 @@ final class LlamaPromptRendererTests: XCTestCase {
             prefixText: "My prefix text here",
             applicationName: "Slack",
             completionLengthInstruction: "Short.",
-            customAIInstructions: nil
+            userName: nil,
+            userTags: nil
         )
 
         XCTAssertTrue(prompt.contains("App: Slack"))
@@ -99,22 +102,26 @@ final class LlamaPromptRendererTests: XCTestCase {
             prefixText: "x",
             applicationName: "App",
             completionLengthInstruction: "UNIQUE_LENGTH_MARKER_7_TO_12_WORDS",
-            customAIInstructions: nil
+            userName: nil,
+            userTags: nil
         )
 
         XCTAssertTrue(prompt.contains("UNIQUE_LENGTH_MARKER_7_TO_12_WORDS"))
     }
 
-    func test_instructionPrompt_includesCustomInstructionsWhenProvided() {
+    func test_instructionPrompt_includesUserProfileContextWhenProvided() {
         let prompt = LlamaPromptRenderer.prompt(
             prefixText: "x",
             applicationName: "App",
             completionLengthInstruction: "Short.",
-            customAIInstructions: "UNIQUE_CUSTOM_MARKER_ZQRT"
+            userName: "UNIQUE_USER_MARKER_ZQRT",
+            userTags: ["UNIQUE_TAG_MARKER_ZQRT"]
         )
 
-        XCTAssertTrue(prompt.contains("UNIQUE_CUSTOM_MARKER_ZQRT"),
-                      "instruction prompt should carry user-provided custom instructions")
+        XCTAssertTrue(prompt.contains("UNIQUE_USER_MARKER_ZQRT"),
+                      "guided prompt should carry the user profile name")
+        XCTAssertTrue(prompt.contains("UNIQUE_TAG_MARKER_ZQRT"),
+                      "guided prompt should carry user profile tags")
     }
 
     /// The prefix is always the *last* section of the instruction prompt — the model
@@ -125,7 +132,8 @@ final class LlamaPromptRendererTests: XCTestCase {
             prefixText: "PREFIX_BODY_XYZ",
             applicationName: "App",
             completionLengthInstruction: "Short.",
-            customAIInstructions: nil
+            userName: nil,
+            userTags: nil
         )
 
         guard let contextRange = prompt.range(of: "Context:"),
@@ -143,7 +151,8 @@ final class LlamaPromptRendererTests: XCTestCase {
             prefixText: "PREFIX",
             applicationName: "App",
             completionLengthInstruction: "Short.",
-            customAIInstructions: nil,
+            userName: nil,
+            userTags: nil,
             visualContextSummary: "A window describing a cat."
         )
 
@@ -156,7 +165,8 @@ final class LlamaPromptRendererTests: XCTestCase {
             prefixText: "PREFIX",
             applicationName: "App",
             completionLengthInstruction: "Short.",
-            customAIInstructions: nil,
+            userName: nil,
+            userTags: nil,
             visualContextSummary: nil
         )
 
@@ -202,7 +212,8 @@ final class LlamaPromptRendererTests: XCTestCase {
             randomSeed: 42,
             maxSuffixCharacters: 192,
             completionLengthInstruction: "Return only the next few words.",
-            customAIInstructions: nil,
+            userName: nil,
+            userTags: nil,
             visualContextSummary: nil
         )
     }

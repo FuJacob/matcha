@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appUpdateManager: AppUpdateManager
     let launchAtLoginService: LaunchAtLoginService
     let suggestionSettings: SuggestionSettingsModel
+    let developerDiagnostics: DeveloperDiagnosticsModel
     let foundationModelAvailabilityService: FoundationModelAvailabilityService
     let suggestionCoordinator: SuggestionCoordinator
     let welcomeCoordinator: WelcomeCoordinator
@@ -43,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appUpdateManager = environment.appUpdateManager
         launchAtLoginService = environment.launchAtLoginService
         suggestionSettings = environment.suggestionSettings
+        developerDiagnostics = environment.developerDiagnostics
         foundationModelAvailabilityService = environment.foundationModelAvailabilityService
         suggestionCoordinator = environment.suggestionCoordinator
         welcomeCoordinator = environment.welcomeCoordinator
@@ -80,16 +82,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusModel.$snapshot
             .sink { [weak self] snapshot in
                 self?.updateActivationIndicator(for: snapshot)
-                self?.focusDebugOverlayController?.update(for: snapshot)
+                self?.updateDeveloperDiagnosticsOverlay()
             }
             .store(in: &cancellables)
 
         focusModel.$latestObserverEvent
             .compactMap { $0 }
             .sink { [weak self] event in
-                self?.focusDebugOverlayController?.flashAXObserverHit(event: event)
+                self?.developerDiagnostics.record(
+                    stage: .axObserver,
+                    status: .succeeded,
+                    message: event.displayName,
+                    metadata: ["sequence": String(event.sequence)]
+                )
+                self?.updateDeveloperDiagnosticsOverlay()
+                self?.focusDebugOverlayController?.flashAXObserverHit()
             }
             .store(in: &cancellables)
+
+        Publishers.MergeMany(
+            developerDiagnostics.$overlaysEnabled.map { _ in () }.eraseToAnyPublisher(),
+            developerDiagnostics.$loggingEnabled.map { _ in () }.eraseToAnyPublisher(),
+            developerDiagnostics.$recentEvents.map { _ in () }.eraseToAnyPublisher(),
+            developerDiagnostics.$contextPipelineItem.map { _ in () }.eraseToAnyPublisher(),
+            developerDiagnostics.$completionPipelineItems.map { _ in () }.eraseToAnyPublisher(),
+            suggestionSettings.$selectedEngine.map { _ in () }.eraseToAnyPublisher(),
+            suggestionSettings.$selectedWordCountPreset.map { _ in () }.eraseToAnyPublisher(),
+            suggestionSettings.$selectedIndicatorMode.map { _ in () }.eraseToAnyPublisher(),
+            runtimeModel.$state.map { _ in () }.eraseToAnyPublisher(),
+            runtimeModel.$selectedModelFilename.map { _ in () }.eraseToAnyPublisher(),
+            suggestionCoordinator.$state.map { _ in () }.eraseToAnyPublisher(),
+            suggestionCoordinator.$latestGenerationNumber.map { _ in () }.eraseToAnyPublisher(),
+            suggestionCoordinator.$visualContextStatus.map { _ in () }.eraseToAnyPublisher()
+        )
+        .sink { [weak self] _ in
+            self?.updateDeveloperDiagnosticsOverlay()
+        }
+        .store(in: &cancellables)
 
     }
 
@@ -146,5 +175,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleModelDirectoryChange() {
         runtimeModel.refreshAvailableModels()
         startRuntimeIfPreferredEngineRequiresIt()
+    }
+
+    /// Composes app state into one render payload for the top-right developer HUD.
+    ///
+    /// `FocusDebugOverlayController` should stay a dumb renderer. It receives strings and stage
+    /// states here instead of reaching back into settings, runtime, or coordinator objects.
+    private func updateDeveloperDiagnosticsOverlay() {
+        let selectedModel = runtimeModel.availableModels
+            .first(where: { $0.filename == runtimeModel.selectedModelFilename })
+        let focusContext = focusModel.snapshot.context
+
+        let fields = [
+            DeveloperDiagnosticsField(label: "Engine", value: suggestionSettings.selectedEngine.displayLabel),
+            DeveloperDiagnosticsField(label: "Model", value: selectedModel?.displayName ?? runtimeModel.selectedModelFilename ?? "n/a"),
+            DeveloperDiagnosticsField(label: "Words", value: suggestionSettings.selectedWordCountPreset.displayLabel),
+            DeveloperDiagnosticsField(label: "Indicator", value: suggestionSettings.selectedIndicatorMode.displayLabel),
+            DeveloperDiagnosticsField(label: "Runtime", value: runtimeModel.state.summary),
+            DeveloperDiagnosticsField(label: "Suggest", value: suggestionCoordinator.state.shortLabel),
+            DeveloperDiagnosticsField(label: "OCR", value: visualContextLabel(for: suggestionCoordinator.visualContextStatus)),
+            DeveloperDiagnosticsField(label: "Focus", value: focusModel.snapshot.applicationName),
+            DeveloperDiagnosticsField(label: "Caret", value: focusContext?.caretQuality.label ?? "n/a"),
+            DeveloperDiagnosticsField(
+                label: "Gen",
+                value: suggestionCoordinator.latestGenerationNumber.map(String.init) ?? "n/a"
+            ),
+        ]
+
+        let overlaySnapshot = DeveloperDiagnosticsOverlaySnapshot(
+            overlaysEnabled: developerDiagnostics.overlaysEnabled,
+            loggingEnabled: developerDiagnostics.loggingEnabled,
+            fields: fields,
+            contextItem: developerDiagnostics.contextPipelineItem,
+            completionItems: developerDiagnostics.completionPipelineItems,
+            recentEvents: developerDiagnostics.recentEvents,
+            latestAXObserverEvent: focusModel.latestObserverEvent
+        )
+
+        focusDebugOverlayController?.render(
+            focusSnapshot: focusModel.snapshot,
+            diagnostics: overlaySnapshot
+        )
+    }
+
+    private func visualContextLabel(for status: VisualContextStatus) -> String {
+        switch status {
+        case .idle:
+            return "Idle"
+        case .capturing:
+            return "Capturing"
+        case .extractingText:
+            return "Reading"
+        case .summarizingText:
+            return "Summarizing"
+        case .ready:
+            return "Ready"
+        case .unavailable:
+            return "Unavailable"
+        case .failed:
+            return "Failed"
+        }
     }
 }

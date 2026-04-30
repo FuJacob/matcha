@@ -33,12 +33,14 @@ final class ScreenshotContextGenerator {
     private let textExtractor: ScreenTextExtractor
     private let summarizer: VisualContextSummarizing?
     private let configuration: VisualContextConfiguration
+    private let diagnostics: DeveloperDiagnosticsModel?
 
     init(
         screenshotService: WindowScreenshotService? = nil,
         textExtractor: ScreenTextExtractor? = nil,
         summarizer: VisualContextSummarizing? = nil,
-        configuration: VisualContextConfiguration? = nil
+        configuration: VisualContextConfiguration? = nil,
+        diagnostics: DeveloperDiagnosticsModel? = nil
     ) {
         let actualConfig = configuration ?? .default
         self.screenshotService = screenshotService ?? WindowScreenshotService()
@@ -50,6 +52,7 @@ final class ScreenshotContextGenerator {
             )
         self.summarizer = summarizer
         self.configuration = actualConfig
+        self.diagnostics = diagnostics
     }
 
     /// Captures a compact region around the focused input, runs OCR, and returns normalized visible
@@ -61,6 +64,16 @@ final class ScreenshotContextGenerator {
         log(
             "context-start app=\(context.applicationName) pid=\(context.processIdentifier) element=\(context.elementIdentifier)"
         )
+        diagnostics?.record(
+            stage: .ocr,
+            status: .running,
+            message: "Capturing nearby screen content.",
+            generation: nil,
+            metadata: [
+                "app": context.applicationName,
+                "element": context.elementIdentifier,
+            ]
+        )
         await onStatusChange?(.capturing)
 
         let screenshot: CapturedWindowScreenshot
@@ -71,9 +84,19 @@ final class ScreenshotContextGenerator {
             )
         } catch let error as WindowScreenshotError {
             log("context-capture-failed reason=\(error.localizedDescription)")
+            diagnostics?.record(
+                stage: .ocr,
+                status: .failed,
+                message: error.localizedDescription
+            )
             throw ScreenshotContextGenerationError.unavailable(error.localizedDescription)
         } catch {
             log("context-capture-failed reason=\(error.localizedDescription)")
+            diagnostics?.record(
+                stage: .ocr,
+                status: .failed,
+                message: error.localizedDescription
+            )
             throw ScreenshotContextGenerationError.failed(error.localizedDescription)
         }
 
@@ -83,15 +106,42 @@ final class ScreenshotContextGenerator {
         )
 
         await onStatusChange?(.extractingText)
+        diagnostics?.record(
+            stage: .ocr,
+            status: .running,
+            message: "Running OCR on captured screenshot.",
+            metadata: [
+                "image": "\(screenshot.image.width)x\(screenshot.image.height)",
+                "window": screenshot.windowTitle ?? "untitled",
+            ]
+        )
 
         let extractedText: String
         do {
-            extractedText = try await textExtractor.extractText(from: screenshot.image).text
+            let extraction = try await textExtractor.extractText(from: screenshot.image)
+            extractedText = extraction.text
+            diagnostics?.record(
+                stage: .ocr,
+                status: .succeeded,
+                message: "Received raw OCR output.",
+                metadata: [
+                    "chars": String(extractedText.count),
+                    "lines": String(extraction.lineCount),
+                ],
+                textBlocks: [
+                    DeveloperDiagnosticsTextBlock(label: "raw OCR output", text: extractedText)
+                ]
+            )
         } catch ScreenTextExtractionError.noRecognizedText {
             guard let windowTitle = screenshot.windowTitle,
                 hasMeaningfulSignal(windowTitle)
             else {
                 log("context-ocr-unavailable no-recognized-text-and-weak-window-title")
+                diagnostics?.record(
+                    stage: .ocr,
+                    status: .skipped,
+                    message: "OCR found no usable text and the window title was not enough context."
+                )
                 throw ScreenshotContextGenerationError.unavailable(
                     "The screenshot did not contain enough visible text to build prompt context."
                 )
@@ -99,17 +149,44 @@ final class ScreenshotContextGenerator {
 
             let fallbackText = normalizeRecognizedText(windowTitle)
             log("context-ocr-empty using-window-title-fallback")
+            diagnostics?.record(
+                stage: .ocr,
+                status: .succeeded,
+                message: "Used window title as OCR fallback.",
+                textBlocks: [
+                    DeveloperDiagnosticsTextBlock(label: "final OCR output", text: fallbackText)
+                ]
+            )
             return VisualContextExcerpt(text: fallbackText)
         } catch let error as ScreenTextExtractionError {
             log("context-ocr-failed reason=\(error.localizedDescription)")
+            diagnostics?.record(
+                stage: .ocr,
+                status: .failed,
+                message: error.localizedDescription
+            )
             throw ScreenshotContextGenerationError.unavailable(error.localizedDescription)
         } catch {
             log("context-ocr-failed reason=\(error.localizedDescription)")
+            diagnostics?.record(
+                stage: .ocr,
+                status: .failed,
+                message: error.localizedDescription
+            )
             throw ScreenshotContextGenerationError.failed(error.localizedDescription)
         }
 
         let normalizedText = normalizeRecognizedText(extractedText)
         log("context-ocr-ready chars=\(normalizedText.count)")
+        diagnostics?.record(
+            stage: .ocr,
+            status: .succeeded,
+            message: "Normalized OCR text.",
+            metadata: ["chars": String(normalizedText.count)],
+            textBlocks: [
+                DeveloperDiagnosticsTextBlock(label: "final OCR output", text: normalizedText)
+            ]
+        )
 
         #if DEBUG
         saveDebugScreenshot(screenshot.image, text: extractedText, name: context.applicationName.replacingOccurrences(of: " ", with: "_"))
@@ -117,6 +194,11 @@ final class ScreenshotContextGenerator {
 
         guard hasMeaningfulSignal(normalizedText) else {
             log("context-unavailable weak-screenshot-signal")
+            diagnostics?.record(
+                stage: .ocr,
+                status: .skipped,
+                message: "Normalized OCR text did not contain enough signal."
+            )
             throw ScreenshotContextGenerationError.unavailable(
                 "The screenshot did not contain enough visible text to build prompt context."
             )

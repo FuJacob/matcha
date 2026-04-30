@@ -56,9 +56,26 @@ extension SuggestionCoordinator {
         }
 
         guard let rawContext = snapshot.context else {
+            diagnostics.record(
+                stage: .focus,
+                status: .failed,
+                message: snapshot.capability.summary,
+                workID: workID
+            )
             disablePredictions(reason: snapshot.capability.summary)
             return
         }
+        diagnostics.record(
+            stage: .focus,
+            status: .succeeded,
+            message: "Resolved focused text input.",
+            workID: workID,
+            metadata: [
+                "app": rawContext.applicationName,
+                "caret": rawContext.caretQuality.label,
+                "role": rawContext.role,
+            ]
+        )
 
         guard SuggestionRequestFactory.shouldGenerateSuggestion(for: rawContext.precedingText) else {
             clearSuggestion()
@@ -147,7 +164,7 @@ extension SuggestionCoordinator {
         // thinking, we drop the answer instead of showing a suggestion for old content.
         guard liveContext.generation == result.generation else {
 
-            latestRawModelOutput = SuggestionDebugLogger.debugPreview(result.rawText)
+            latestRawModelOutput = DeveloperDiagnosticsModel.debugPreview(result.rawText)
             logStage(
                 "stale-drop",
                 workID: workID,
@@ -160,7 +177,7 @@ extension SuggestionCoordinator {
             return
         }
 
-        latestRawModelOutput = SuggestionDebugLogger.debugPreview(result.rawText)
+        latestRawModelOutput = DeveloperDiagnosticsModel.debugPreview(result.rawText)
 
         guard !result.text.isEmpty else {
             clearSuggestion()

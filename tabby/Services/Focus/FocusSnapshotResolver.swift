@@ -10,10 +10,6 @@ import Foundation
 struct FocusSnapshotResolver {
     private let geometryResolver: AXTextGeometryResolver
 
-    // MARK: - Debug AX tree dump (temporary — remove after caret placement is fixed)
-    /// Set to true to print the AX tree every time focus changes. Check Xcode console.
-    private static let dumpAXTree = false
-    private static var lastDumpedElementID: String?
 
     init(geometryResolver: AXTextGeometryResolver? = nil) {
         self.geometryResolver = geometryResolver ?? AXTextGeometryResolver()
@@ -32,13 +28,6 @@ struct FocusSnapshotResolver {
             for: kAXSubroleAttribute as CFString, on: focusedElement)
         let focusedElementIdentifier = AXHelper.elementIdentifier(
             for: focusedElement, bundleIdentifier: bundleIdentifier)
-
-        // Dump once per element change so it doesn't spam on repeated focus/value notifications.
-        if Self.dumpAXTree, Self.lastDumpedElementID != focusedElementIdentifier {
-            Self.lastDumpedElementID = focusedElementIdentifier
-            printAXTreeDump(
-                focusedElement: focusedElement, app: applicationName, bundle: bundleIdentifier)
-        }
 
         let candidates = candidateElements(around: focusedElement).map {
             candidateSnapshot(for: $0, bundleIdentifier: bundleIdentifier)
@@ -474,106 +463,6 @@ struct FocusSnapshotResolver {
         }
     }
 
-    // MARK: - Debug AX tree dump
-
-    private func printAXTreeDump(focusedElement: AXUIElement, app: String, bundle: String) {
-        var out = "\n========== AX TREE DUMP ==========\n"
-        out += "App: \(app) (\(bundle))\n\n"
-
-        out += "-- Focused + ancestors --\n"
-        var ancestors: [AXUIElement] = [focusedElement]
-        var cur = focusedElement
-        for _ in 0..<3 {
-            guard let p = AXHelper.parentElement(of: cur) else { break }
-            ancestors.append(p)
-            cur = p
-        }
-        for (i, el) in ancestors.enumerated().reversed() {
-            let indent = String(repeating: "  ", count: ancestors.count - 1 - i)
-            out += describeNode(el, indent: indent)
-        }
-
-        out += "\n-- Children (depth 6) --\n"
-        dumpChildrenRecursive(of: focusedElement, into: &out, indent: "", depth: 0)
-
-        out += "========== END DUMP ==========\n"
-        print(out)
-    }
-
-    private func dumpChildrenRecursive(
-        of element: AXUIElement,
-        into out: inout String,
-        indent: String,
-        depth: Int
-    ) {
-        guard depth < 6 else { return }
-        let children = AXHelper.childElements(of: element)
-        for (i, child) in children.prefix(20).enumerated() {
-            out += describeNode(child, indent: "\(indent)[\(i)] ")
-            dumpChildrenRecursive(of: child, into: &out, indent: indent + "  ", depth: depth + 1)
-        }
-        if children.count > 20 {
-            out += "\(indent)  ...+\(children.count - 20) more\n"
-        }
-    }
-
-    private func describeNode(_ el: AXUIElement, indent: String) -> String {
-        let role = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: el) ?? "?"
-        let subrole = AXHelper.stringValue(for: kAXSubroleAttribute as CFString, on: el)
-        let attrs = Set(AXHelper.attributeNames(on: el))
-        let paramAttrs = Set(AXHelper.parameterizedAttributeNames(on: el))
-
-        var s = "\(indent)\(role)"
-        if let sr = subrole { s += " (\(sr))" }
-        s += "\n"
-
-        if let frame = AXHelper.rectValue(for: "AXFrame" as CFString, on: el) {
-            let cocoa = AXHelper.cocoaRect(fromAccessibilityRect: frame)
-            s += "\(indent)  frame(AX): \(fmt(frame))  frame(cocoa): \(fmt(cocoa))\n"
-        }
-
-        if attrs.contains(kAXValueAttribute as String),
-            let text = AXHelper.stringValue(for: kAXValueAttribute as CFString, on: el)
-        {
-            let t = text.count > 80 ? String(text.prefix(80)) + "…" : text
-            s +=
-                "\(indent)  value: \"\(t.replacingOccurrences(of: "\n", with: "\\n"))\" (len=\(text.count))\n"
-        }
-
-        if let range = AXHelper.rangeValue(for: kAXSelectedTextRangeAttribute as CFString, on: el) {
-            s += "\(indent)  selection: loc=\(range.location) len=\(range.length)\n"
-
-            if paramAttrs.contains(kAXBoundsForRangeParameterizedAttribute as String) {
-                let r = AXHelper.parameterizedRectValue(
-                    for: kAXBoundsForRangeParameterizedAttribute as CFString,
-                    range: NSRange(location: range.location, length: 0),
-                    on: el
-                )
-                if let r, !r.isEmpty {
-                    s += "\(indent)  BoundsForRange(loc,0): \(fmt(r))\n"
-                } else {
-                    s += "\(indent)  BoundsForRange(loc,0): FAILED\n"
-                }
-            }
-        }
-
-        if let mr = AXHelper.textMarkerCaretRect(on: el), !mr.isEmpty {
-            s += "\(indent)  TextMarkerCaret: \(fmt(mr))\n"
-        }
-
-        if let ed = AXHelper.boolValue(for: "AXEditable" as CFString, on: el) {
-            s += "\(indent)  editable: \(ed)\n"
-        }
-
-        let cc = AXHelper.childElements(of: el).count
-        if cc > 0 { s += "\(indent)  children: \(cc)\n" }
-
-        return s
-    }
-
-    private func fmt(_ r: CGRect) -> String {
-        String(format: "(%.0f, %.0f, %.0f×%.0f)", r.origin.x, r.origin.y, r.width, r.height)
-    }
 }
 
 /// AX data read from one candidate element near the current focus.

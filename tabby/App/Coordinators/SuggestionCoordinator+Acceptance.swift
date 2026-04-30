@@ -306,11 +306,29 @@ extension SuggestionCoordinator {
             previousState: overlayState
         ) {
             latestOverlayMessage = message
+            diagnostics.record(
+                stage: .overlay,
+                status: .succeeded,
+                message: message,
+                workID: currentWorkID,
+                generation: latestGenerationNumber,
+                metadata: [
+                    "chars": String(text.count),
+                    "caret": caretQuality.label,
+                ]
+            )
         }
     }
 
     func hideOverlay(reason: String) {
         latestOverlayMessage = overlayPresenter.hide(reason: reason)
+        diagnostics.record(
+            stage: .overlay,
+            status: .skipped,
+            message: reason,
+            workID: currentWorkID,
+            generation: latestGenerationNumber
+        )
     }
 
     func logStage(
@@ -323,7 +341,7 @@ extension SuggestionCoordinator {
         normalizedOutput: String? = nil
     ) {
         latestStageMessage = message
-        logger.logStage(
+        diagnostics.recordSuggestionStage(
             stage,
             workID: workID,
             generation: generation,

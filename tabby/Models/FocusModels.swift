@@ -204,7 +204,7 @@ struct FocusSnapshot: Equatable {
 /// This intentionally stays separate from `FocusSnapshot`: a notification can be useful diagnostic
 /// information even when the resolved focus snapshot does not change. The sequence number gives
 /// Combine/SwiftUI consumers an always-unique value for repeated identical notifications.
-struct FocusObserverEvent: Equatable {
+struct FocusObserverEvent: Equatable, Sendable {
     let sequence: Int
     let notificationName: String
     let occurredAt: Date

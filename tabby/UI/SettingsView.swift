@@ -482,7 +482,6 @@ struct SettingsView: View {
     }
 
 
-
     private var selectedModelBinding: Binding<String> {
         Binding(
             get: {

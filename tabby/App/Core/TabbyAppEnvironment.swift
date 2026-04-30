@@ -17,6 +17,7 @@ final class TabbyAppEnvironment {
     let appUpdateManager: AppUpdateManager
     let launchAtLoginService: LaunchAtLoginService
     let suggestionSettings: SuggestionSettingsModel
+    let developerDiagnostics: DeveloperDiagnosticsModel
     let foundationModelAvailabilityService: FoundationModelAvailabilityService
     let suggestionCoordinator: SuggestionCoordinator
     let welcomeCoordinator: WelcomeCoordinator
@@ -34,6 +35,7 @@ final class TabbyAppEnvironment {
         let runtimeModel = RuntimeBootstrapModel(runtimeManager: runtimeManager)
         let modelDownloadManager = ModelDownloadManager()
         let suggestionSettings = SuggestionSettingsModel(configuration: configuration)
+        let developerDiagnostics = DeveloperDiagnosticsModel()
         let foundationModelAvailabilityService = FoundationModelAvailabilityService()
         let suppressionController = InputSuppressionController()
         let inputMonitor = InputMonitor(
@@ -70,7 +72,10 @@ final class TabbyAppEnvironment {
         let overlayController = OverlayController(suggestionSettings: suggestionSettings)
         let activationIndicatorController = ActivationIndicatorController()
         let summarizer = LlamaVisualContextSummarizer(runtimeManager: runtimeManager)
-        let screenshotContextGenerator = ScreenshotContextGenerator(summarizer: summarizer)
+        let screenshotContextGenerator = ScreenshotContextGenerator(
+            summarizer: summarizer,
+            diagnostics: developerDiagnostics
+        )
         let visualContextCoordinator = VisualContextCoordinator(
             screenshotContextGenerator: screenshotContextGenerator,
             screenRecordingPermissionProvider: { permissionManager.screenRecordingGranted }
@@ -96,6 +101,7 @@ final class TabbyAppEnvironment {
             visualContextCoordinator: visualContextCoordinator,
             interactionState: interactionState,
             workController: workController,
+            diagnostics: developerDiagnostics,
             configuration: configuration
         )
 
@@ -107,13 +113,12 @@ final class TabbyAppEnvironment {
         self.appUpdateManager = appUpdateManager
         self.launchAtLoginService = launchAtLoginService
         self.suggestionSettings = suggestionSettings
+        self.developerDiagnostics = developerDiagnostics
         self.foundationModelAvailabilityService = foundationModelAvailabilityService
         self.suggestionCoordinator = suggestionCoordinator
         self.welcomeCoordinator = welcomeCoordinator
         self.settingsCoordinator = settingsCoordinator
         self.activationIndicatorController = activationIndicatorController
-        self.focusDebugOverlayController = FocusDebugOverlayController.isEnabled
-            ? FocusDebugOverlayController()
-            : nil
+        self.focusDebugOverlayController = FocusDebugOverlayController()
     }
 }
