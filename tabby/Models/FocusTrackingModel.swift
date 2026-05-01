@@ -10,6 +10,7 @@ import Foundation
 final class FocusTrackingModel: ObservableObject {
     @Published private(set) var snapshot: FocusSnapshot
     @Published private(set) var latestExternalApplication: FocusedApplicationIdentity?
+    @Published private(set) var latestExternalBrowserDomain: FocusedBrowserDomainIdentity?
     /// Debug-only pulse source for the caret overlay; not used by suggestion generation.
     @Published private(set) var latestObserverEvent: FocusObserverEvent?
 
@@ -31,10 +32,14 @@ final class FocusTrackingModel: ObservableObject {
         latestExternalApplication = tracker.snapshot.externalApplicationIdentity(
             ignoredBundleIdentifier: ignoredBundleIdentifier
         )
+        latestExternalBrowserDomain = tracker.snapshot.externalBrowserDomainIdentity(
+            ignoredBundleIdentifier: ignoredBundleIdentifier
+        )
 
         tracker.onSnapshotChange = { [weak self] snapshot in
             self?.snapshot = snapshot
             self?.updateLatestExternalApplication(from: snapshot)
+            self?.updateLatestExternalBrowserDomain(from: snapshot)
         }
 
         tracker.onAXNotification = { [weak self] notificationName in
@@ -89,6 +94,22 @@ final class FocusTrackingModel: ObservableObject {
         }
 
         latestExternalApplication = application
+    }
+
+    private func updateLatestExternalBrowserDomain(from snapshot: FocusSnapshot) {
+        guard let browserDomain = snapshot.externalBrowserDomainIdentity(
+            ignoredBundleIdentifier: ignoredBundleIdentifier
+        ) else {
+            // Clear the cached browser identity when the user moves into a different non-browser
+            // app, but preserve it while Tabby itself is focused so the menu can still reference
+            // the last real browser tab.
+            if snapshot.bundleIdentifier != ignoredBundleIdentifier {
+                latestExternalBrowserDomain = nil
+            }
+            return
+        }
+
+        latestExternalBrowserDomain = browserDomain
     }
 
     private func publishObserverEvent(named notificationName: String) {

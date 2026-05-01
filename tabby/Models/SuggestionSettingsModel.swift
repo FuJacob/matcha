@@ -14,6 +14,7 @@ final class SuggestionSettingsModel: ObservableObject {
     @Published private(set) var isGloballyEnabled: Bool
     @Published private(set) var selectedIndicatorMode: ActivationIndicatorMode
     @Published private(set) var disabledAppRules: [DisabledApplicationRule]
+    @Published private(set) var domainOverrideRules: [DomainOverrideRule]
     @Published private(set) var customSuggestionTextColorHex: String?
     @Published private(set) var selectedEngine: SuggestionEngineKind
     @Published private(set) var selectedWordCountPreset: SuggestionWordCountPreset
@@ -23,6 +24,7 @@ final class SuggestionSettingsModel: ObservableObject {
 
     private static let isGloballyEnabledDefaultsKey = "tabbyGloballyEnabled"
     private static let disabledAppRulesDefaultsKey = "tabbyDisabledAppRules"
+    private static let domainOverrideRulesDefaultsKey = "tabbyDomainOverrideRules"
     // Legacy key. Keep reading and writing through it so old builds degrade to a visible indicator.
     private static let showCaretIndicatorDefaultsKey = "tabbyShowCaretIndicator"
     private static let selectedIndicatorModeDefaultsKey = "tabbySelectedIndicatorMode"
@@ -39,6 +41,7 @@ final class SuggestionSettingsModel: ObservableObject {
 
         let resolvedGloballyEnabled = userDefaults.object(forKey: Self.isGloballyEnabledDefaultsKey) as? Bool ?? true
         let resolvedDisabledAppRules = Self.loadDisabledAppRules(from: userDefaults)
+        let resolvedDomainOverrideRules = Self.loadDomainOverrideRules(from: userDefaults)
         let legacyShowCaretIndicator = userDefaults.object(forKey: Self.showCaretIndicatorDefaultsKey) as? Bool ?? true
         let resolvedIndicatorMode = userDefaults
             .string(forKey: Self.selectedIndicatorModeDefaultsKey)
@@ -63,6 +66,7 @@ final class SuggestionSettingsModel: ObservableObject {
 
         isGloballyEnabled = resolvedGloballyEnabled
         disabledAppRules = resolvedDisabledAppRules
+        domainOverrideRules = resolvedDomainOverrideRules
         selectedIndicatorMode = resolvedIndicatorMode
         customSuggestionTextColorHex = resolvedCustomSuggestionTextColorHex
         selectedEngine = resolvedEngine
@@ -71,6 +75,7 @@ final class SuggestionSettingsModel: ObservableObject {
 
         userDefaults.set(resolvedGloballyEnabled, forKey: Self.isGloballyEnabledDefaultsKey)
         persistDisabledAppRules(resolvedDisabledAppRules)
+        persistDomainOverrideRules(resolvedDomainOverrideRules)
         persistSelectedIndicatorMode(resolvedIndicatorMode)
         persistCustomSuggestionTextColorHex(resolvedCustomSuggestionTextColorHex)
         persistSelectedEngine(resolvedEngine)
@@ -88,6 +93,7 @@ final class SuggestionSettingsModel: ObservableObject {
         SuggestionSettingsSnapshot(
             isGloballyEnabled: isGloballyEnabled,
             disabledAppBundleIdentifiers: Set(disabledAppRules.map(\.bundleIdentifier)),
+            domainOverrideRules: domainOverrideRules,
             selectedEngine: selectedEngine,
             selectedWordCountPreset: selectedWordCountPreset,
             customAIInstructions: CustomAIInstructionFormatter.normalized(customAIInstructions)
@@ -199,6 +205,90 @@ final class SuggestionSettingsModel: ObservableObject {
         }
     }
 
+    /// Finds the most specific matching rule for the current browser tab.
+    ///
+    /// Exact-host overrides win over registrable-domain overrides because they represent a more
+    /// specific user intent.
+    func domainOverrideRule(
+        for domain: FocusedBrowserDomainIdentity
+    ) -> DomainOverrideRule? {
+        if let exactHostRule = domainOverrideRules.first(where: {
+            $0.matchScope == .exactHost && $0.matches(domain)
+        }) {
+            return exactHostRule
+        }
+
+        return domainOverrideRules.first(where: {
+            $0.matchScope == .registrableDomain && $0.matches(domain)
+        })
+    }
+
+    func setDomainOverride(
+        for domain: FocusedBrowserDomainIdentity,
+        state: DomainOverrideState
+    ) {
+        let existingRule = domainOverrideRule(for: domain)
+        let updatedRule = DomainOverrideRule(
+            host: Self.normalizedHost(domain.host),
+            registrableDomain: Self.normalizedHost(domain.registrableDomain),
+            state: state,
+            matchScope: existingRule?.matchScope ?? .registrableDomain
+        )
+
+        upsertDomainOverrideRule(
+            updatedRule,
+            replacingRuleWithID: existingRule?.id
+        )
+    }
+
+    func setDomainOverrideState(
+        ruleID: String,
+        state: DomainOverrideState
+    ) {
+        guard let existingRule = domainOverrideRules.first(where: { $0.id == ruleID }) else {
+            return
+        }
+
+        let updatedRule = DomainOverrideRule(
+            host: existingRule.host,
+            registrableDomain: existingRule.registrableDomain,
+            state: state,
+            matchScope: existingRule.matchScope
+        )
+        upsertDomainOverrideRule(updatedRule, replacingRuleWithID: existingRule.id)
+    }
+
+    func setDomainOverrideUsesExactHost(
+        ruleID: String,
+        usesExactHost: Bool
+    ) {
+        guard let existingRule = domainOverrideRules.first(where: { $0.id == ruleID }) else {
+            return
+        }
+
+        let updatedScope: DomainMatchScope = usesExactHost ? .exactHost : .registrableDomain
+        let updatedRule = DomainOverrideRule(
+            host: existingRule.host,
+            registrableDomain: existingRule.registrableDomain,
+            state: existingRule.state,
+            matchScope: updatedScope
+        )
+        upsertDomainOverrideRule(updatedRule, replacingRuleWithID: existingRule.id)
+    }
+
+    func removeDomainOverride(ruleID: String) {
+        let updatedRules = domainOverrideRules.filter {
+            $0.id != ruleID
+        }
+
+        guard updatedRules != domainOverrideRules else {
+            return
+        }
+
+        domainOverrideRules = updatedRules
+        persistDomainOverrideRules(updatedRules)
+    }
+
     func selectIndicatorMode(_ mode: ActivationIndicatorMode) {
         guard selectedIndicatorMode != mode else {
             return
@@ -270,6 +360,16 @@ final class SuggestionSettingsModel: ObservableObject {
         return sanitizedDisabledAppRules(decodedRules)
     }
 
+    private static func loadDomainOverrideRules(from userDefaults: UserDefaults) -> [DomainOverrideRule] {
+        guard let data = userDefaults.data(forKey: Self.domainOverrideRulesDefaultsKey),
+              let decodedRules = try? JSONDecoder().decode([DomainOverrideRule].self, from: data)
+        else {
+            return []
+        }
+
+        return sanitizedDomainOverrideRules(decodedRules)
+    }
+
     private static func sanitizedDisabledAppRules(
         _ rules: [DisabledApplicationRule]
     ) -> [DisabledApplicationRule] {
@@ -305,6 +405,43 @@ final class SuggestionSettingsModel: ObservableObject {
         }
     }
 
+    private static func sanitizedDomainOverrideRules(
+        _ rules: [DomainOverrideRule]
+    ) -> [DomainOverrideRule] {
+        var rulesByIdentifier: [String: DomainOverrideRule] = [:]
+
+        for rule in rules {
+            let sanitizedHost = normalizedHost(rule.host)
+            let sanitizedRegistrableDomain = normalizedHost(rule.registrableDomain)
+            guard !sanitizedHost.isEmpty, !sanitizedRegistrableDomain.isEmpty else {
+                continue
+            }
+
+            let sanitizedRule = DomainOverrideRule(
+                host: sanitizedHost,
+                registrableDomain: sanitizedRegistrableDomain,
+                state: rule.state,
+                matchScope: rule.matchScope
+            )
+            rulesByIdentifier[sanitizedRule.id] = sanitizedRule
+        }
+
+        return sortedDomainOverrideRules(Array(rulesByIdentifier.values))
+    }
+
+    private static func sortedDomainOverrideRules(
+        _ rules: [DomainOverrideRule]
+    ) -> [DomainOverrideRule] {
+        rules.sorted {
+            if $0.displayDomain.localizedCaseInsensitiveCompare($1.displayDomain) == .orderedSame {
+                return $0.id < $1.id
+            }
+
+            return $0.displayDomain.localizedCaseInsensitiveCompare($1.displayDomain)
+                == .orderedAscending
+        }
+    }
+
     private static func normalizedBundleIdentifier(_ bundleIdentifier: String?) -> String? {
         guard let bundleIdentifier else {
             return nil
@@ -320,6 +457,12 @@ final class SuggestionSettingsModel: ObservableObject {
     ) -> String {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallbackBundleIdentifier : trimmed
+    }
+
+    private static func normalizedHost(_ host: String) -> String {
+        host
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".").union(.whitespacesAndNewlines))
+            .lowercased()
     }
 
     private static func normalizedHexString(_ hex: String?) -> String? {
@@ -355,22 +498,58 @@ final class SuggestionSettingsModel: ObservableObject {
             userDefaults.set(data, forKey: Self.disabledAppRulesDefaultsKey)
         }
     }
+
+    private func persistDomainOverrideRules(_ rules: [DomainOverrideRule]) {
+        guard !rules.isEmpty else {
+            userDefaults.removeObject(forKey: Self.domainOverrideRulesDefaultsKey)
+            return
+        }
+
+        if let data = try? JSONEncoder().encode(rules) {
+            userDefaults.set(data, forKey: Self.domainOverrideRulesDefaultsKey)
+        }
+    }
+
+    private func upsertDomainOverrideRule(
+        _ rule: DomainOverrideRule,
+        replacingRuleWithID replacedRuleID: String?
+    ) {
+        var updatedRules = domainOverrideRules.filter { existingRule in
+            existingRule.id != rule.id && existingRule.id != replacedRuleID
+        }
+        updatedRules.append(rule)
+        let sortedRules = Self.sortedDomainOverrideRules(updatedRules)
+
+        guard sortedRules != domainOverrideRules else {
+            return
+        }
+
+        domainOverrideRules = sortedRules
+        persistDomainOverrideRules(sortedRules)
+    }
 }
 
 extension SuggestionSettingsModel: SuggestionSettingsProviding {
     var snapshotPublisher: AnyPublisher<SuggestionSettingsSnapshot, Never> {
-        Publishers.CombineLatest4(
-            $isGloballyEnabled,
-            $disabledAppRules,
-            $selectedEngine,
-            $selectedWordCountPreset
+        Publishers.CombineLatest(
+            Publishers.CombineLatest4(
+                $isGloballyEnabled,
+                $disabledAppRules,
+                $domainOverrideRules,
+                $selectedEngine
+            ),
+            Publishers.CombineLatest(
+                $selectedWordCountPreset,
+                $customAIInstructions
+            )
         )
-        .combineLatest($customAIInstructions)
-        .map { combinedSettings, customAIInstructions in
-            let (globallyEnabled, disabledAppRules, engine, wordCountPreset) = combinedSettings
+        .map { combinedSettings, secondarySettings in
+            let (globallyEnabled, disabledAppRules, domainOverrideRules, engine) = combinedSettings
+            let (wordCountPreset, customAIInstructions) = secondarySettings
             return SuggestionSettingsSnapshot(
                 isGloballyEnabled: globallyEnabled,
                 disabledAppBundleIdentifiers: Set(disabledAppRules.map(\.bundleIdentifier)),
+                domainOverrideRules: domainOverrideRules,
                 selectedEngine: engine,
                 selectedWordCountPreset: wordCountPreset,
                 customAIInstructions: CustomAIInstructionFormatter.normalized(customAIInstructions)

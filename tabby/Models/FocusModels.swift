@@ -5,6 +5,134 @@ import Foundation
 /// Pure data models for focused-input state, AX capability support, and stale-result signatures.
 /// These types let the rest of Tabby reason about focus without depending on raw Accessibility values.
 
+/// Resolved browser-tab identity derived from the focused Accessibility tree.
+///
+/// Why this exists as its own type:
+/// app-level identity and browser-domain identity are different product concepts. The app-level
+/// rule answers "is Tabby allowed anywhere in Chrome?", while the browser-domain rule answers
+/// "is Tabby allowed on `github.com` inside a browser tab?" Keeping domain data separate prevents
+/// URL parsing details from leaking into unrelated focus or coordinator code.
+struct BrowserDomainContext: Equatable, Sendable {
+    let pageURL: URL
+    let host: String
+    let registrableDomain: String
+
+    /// Product copy should prefer the broad registrable domain because that is the default match
+    /// scope users opt into from the menu. Exact-host matching is a later settings refinement.
+    var displayDomain: String {
+        registrableDomain
+    }
+}
+
+/// Stable browser-domain identity for UI surfaces that need to remember the last real browser tab
+/// even after Tabby steals focus to open its own menu.
+struct FocusedBrowserDomainIdentity: Equatable, Sendable {
+    let applicationName: String
+    let bundleIdentifier: String
+    let pageURL: URL
+    let host: String
+    let registrableDomain: String
+
+    var displayDomain: String {
+        registrableDomain
+    }
+}
+
+/// Pure helper that converts a browser URL into the matching domain Tabby should use for rules.
+///
+/// Tradeoff:
+/// a full public-suffix implementation would require an extra dependency or bundled list. For this
+/// product surface we keep the logic local and documented, with an explicit compound-suffix table
+/// for the common multi-label registries users are most likely to encounter.
+enum BrowserDomainNormalizer {
+    /// These suffixes are the cases where "last two labels" is wrong. Storing them in one place
+    /// keeps the heuristic auditable and easy to extend when a real user reports a miss.
+    private static let compoundPublicSuffixes: Set<String> = [
+        "ac.uk",
+        "co.il",
+        "co.in",
+        "co.jp",
+        "co.kr",
+        "co.nz",
+        "co.uk",
+        "com.au",
+        "com.br",
+        "com.cn",
+        "com.hk",
+        "com.mx",
+        "com.sg",
+        "com.tr",
+        "com.tw",
+        "gov.uk",
+        "net.au",
+        "org.au",
+        "org.uk"
+    ]
+
+    static func browserDomainContext(for url: URL) -> BrowserDomainContext? {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = normalizedHost(from: url)
+        else {
+            return nil
+        }
+
+        return BrowserDomainContext(
+            pageURL: url,
+            host: host,
+            registrableDomain: registrableDomain(for: host)
+        )
+    }
+
+    private static func normalizedHost(from url: URL) -> String? {
+        guard var host = url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        else {
+            return nil
+        }
+
+        host = host.lowercased()
+        return host.isEmpty ? nil : host
+    }
+
+    private static func registrableDomain(for host: String) -> String {
+        if isIPAddress(host) || host == "localhost" {
+            return host
+        }
+
+        let labels = host.split(separator: ".")
+        guard labels.count > 2 else {
+            return host
+        }
+
+        let suffixCandidate = labels.suffix(2).joined(separator: ".")
+        if compoundPublicSuffixes.contains(suffixCandidate), labels.count >= 3 {
+            return labels.suffix(3).joined(separator: ".")
+        }
+
+        return suffixCandidate
+    }
+
+    /// IP literals have no registrable-domain concept, so we match them exactly.
+    private static func isIPAddress(_ host: String) -> Bool {
+        if host.contains(":") {
+            return true
+        }
+
+        let octets = host.split(separator: ".")
+        guard octets.count == 4 else {
+            return false
+        }
+
+        return octets.allSatisfy { octet in
+            guard let value = Int(octet), (0...255).contains(value) else {
+                return false
+            }
+
+            return String(value) == octet
+        }
+    }
+}
+
 /// Immutable identity for one focused input observation.
 ///
 /// `elementIdentifier` is still useful because it describes the AX node we resolved, but it is not
@@ -236,13 +364,31 @@ struct FocusSnapshot: Equatable {
     let capability: FocusCapability
     let context: FocusedInputSnapshot?
     let inspection: FocusInspectionSnapshot?
+    let browserDomain: BrowserDomainContext?
+
+    init(
+        applicationName: String,
+        bundleIdentifier: String?,
+        capability: FocusCapability,
+        context: FocusedInputSnapshot?,
+        inspection: FocusInspectionSnapshot?,
+        browserDomain: BrowserDomainContext? = nil
+    ) {
+        self.applicationName = applicationName
+        self.bundleIdentifier = bundleIdentifier
+        self.capability = capability
+        self.context = context
+        self.inspection = inspection
+        self.browserDomain = browserDomain
+    }
 
     static let inactive = FocusSnapshot(
         applicationName: "No active application",
         bundleIdentifier: nil,
         capability: .unsupported("No focused text input"),
         context: nil,
-        inspection: nil
+        inspection: nil,
+        browserDomain: nil
     )
 
     var capabilitySummary: String {
@@ -266,6 +412,26 @@ struct FocusSnapshot: Equatable {
         return FocusedApplicationIdentity(
             applicationName: applicationName,
             bundleIdentifier: bundleIdentifier
+        )
+    }
+
+    /// Domain-aware UI should only target a real external browser tab, never Tabby's own menu.
+    func externalBrowserDomainIdentity(
+        ignoredBundleIdentifier: String?
+    ) -> FocusedBrowserDomainIdentity? {
+        guard let bundleIdentifier,
+              bundleIdentifier != ignoredBundleIdentifier,
+              let browserDomain
+        else {
+            return nil
+        }
+
+        return FocusedBrowserDomainIdentity(
+            applicationName: applicationName,
+            bundleIdentifier: bundleIdentifier,
+            pageURL: browserDomain.pageURL,
+            host: browserDomain.host,
+            registrableDomain: browserDomain.registrableDomain
         )
     }
 }

@@ -31,6 +31,7 @@ struct SettingsView: View {
             generalSection
             autocompleteSection
             disabledAppsSection
+            domainOverridesSection
             customInstructionsSection
             permissionsSection
             localModelsSection
@@ -178,6 +179,25 @@ struct SettingsView: View {
             } else {
                 ForEach(suggestionSettings.disabledAppRules) { rule in
                     disabledAppRuleRow(rule)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var domainOverridesSection: some View {
+        Section("Domain Overrides") {
+            Text("Browser rules default to the registrable domain (`github.com`). Turn on subdomain matching only when one host should behave differently from the rest of the site.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if suggestionSettings.domainOverrideRules.isEmpty {
+                Text("No domain overrides yet. Create one from the menu bar while focused in a browser tab.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(suggestionSettings.domainOverrideRules) { rule in
+                    domainOverrideRuleRow(rule)
                 }
             }
         }
@@ -360,6 +380,50 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private func domainOverrideRuleRow(_ rule: DomainOverrideRule) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: "globe")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(rule.displayDomain)
+
+                    Text(domainOverrideSubtitle(for: rule))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Picker("State", selection: domainOverrideStateBinding(for: rule)) {
+                    ForEach(DomainOverrideState.allCases) { state in
+                        Text(state.displayLabel)
+                            .tag(state)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 110)
+
+                Button {
+                    suggestionSettings.removeDomainOverride(ruleID: rule.id)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Remove \(rule.displayDomain) override")
+            }
+
+            Toggle("Only this subdomain", isOn: domainOverrideExactHostBinding(for: rule))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        .padding(.vertical, 4)
+    }
+
     private func icon(for rule: DisabledApplicationRule) -> NSImage {
         // Bundle IDs are durable; app paths are not. Resolve the current app URL at render time so
         // Settings naturally picks up app updates, moves, or reinstalls without persisting UI cache.
@@ -470,6 +534,33 @@ struct SettingsView: View {
         )
     }
 
+    private func domainOverrideStateBinding(for rule: DomainOverrideRule) -> Binding<DomainOverrideState> {
+        Binding(
+            get: {
+                suggestionSettings.domainOverrideRules.first(where: { $0.id == rule.id })?.state
+                    ?? rule.state
+            },
+            set: { newState in
+                suggestionSettings.setDomainOverrideState(ruleID: rule.id, state: newState)
+            }
+        )
+    }
+
+    private func domainOverrideExactHostBinding(for rule: DomainOverrideRule) -> Binding<Bool> {
+        Binding(
+            get: {
+                suggestionSettings.domainOverrideRules.first(where: { $0.id == rule.id })?.matchScope
+                    == .exactHost
+            },
+            set: { usesExactHost in
+                suggestionSettings.setDomainOverrideUsesExactHost(
+                    ruleID: rule.id,
+                    usesExactHost: usesExactHost
+                )
+            }
+        )
+    }
+
     private var selectedModelBinding: Binding<String> {
         Binding(
             get: {
@@ -497,6 +588,19 @@ struct SettingsView: View {
         }
 
         return "Custom ghost text color is active."
+    }
+
+    private func domainOverrideSubtitle(for rule: DomainOverrideRule) -> String {
+        switch rule.matchScope {
+        case .registrableDomain:
+            return "Matches all subdomains on \(rule.registrableDomain)"
+        case .exactHost:
+            if rule.host == rule.registrableDomain {
+                return "Matches only \(rule.host)"
+            }
+
+            return "Matches only \(rule.host); other \(rule.registrableDomain) subdomains inherit separately"
+        }
     }
 
     private var customAIInstructionsDescription: String {

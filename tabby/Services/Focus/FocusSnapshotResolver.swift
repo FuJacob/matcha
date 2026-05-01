@@ -31,6 +31,7 @@ struct FocusSnapshotResolver {
     ) -> FocusSnapshot {
         let applicationName = application.localizedName ?? "Unknown"
         let bundleIdentifier = application.bundleIdentifier ?? "unknown.bundle"
+        let browserDomain = resolveBrowserDomain(near: focusedElement)
         let focusedRole =
             AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: focusedElement) ?? "Unknown"
         let focusedSubrole = AXHelper.stringValue(
@@ -72,7 +73,8 @@ struct FocusSnapshotResolver {
                 bundleIdentifier: bundleIdentifier,
                 capability: .unsupported(resolution.unsupportedReason),
                 context: nil,
-                inspection: inspection
+                inspection: inspection,
+                browserDomain: browserDomain
             )
         }
 
@@ -82,7 +84,8 @@ struct FocusSnapshotResolver {
                 bundleIdentifier: bundleIdentifier,
                 capability: .unsupported("Selection range is unavailable."),
                 context: nil,
-                inspection: inspection
+                inspection: inspection,
+                browserDomain: browserDomain
             )
         }
 
@@ -92,7 +95,8 @@ struct FocusSnapshotResolver {
                 bundleIdentifier: bundleIdentifier,
                 capability: .unsupported("Selection range is invalid."),
                 context: nil,
-                inspection: inspection
+                inspection: inspection,
+                browserDomain: browserDomain
             )
         }
 
@@ -105,7 +109,8 @@ struct FocusSnapshotResolver {
                 bundleIdentifier: bundleIdentifier,
                 capability: .unsupported("Selection range exceeds the current field value."),
                 context: nil,
-                inspection: inspection
+                inspection: inspection,
+                browserDomain: browserDomain
             )
         }
 
@@ -144,7 +149,8 @@ struct FocusSnapshotResolver {
                 bundleIdentifier: bundleIdentifier,
                 capability: .unsupported("Caret bounds are unavailable."),
                 context: nil,
-                inspection: inspection
+                inspection: inspection,
+                browserDomain: browserDomain
             )
         }
 
@@ -176,7 +182,8 @@ struct FocusSnapshotResolver {
                 bundleIdentifier: bundleIdentifier,
                 capability: .blocked("Secure text input is active."),
                 context: context,
-                inspection: inspection
+                inspection: inspection,
+                browserDomain: browserDomain
             )
         }
 
@@ -186,7 +193,8 @@ struct FocusSnapshotResolver {
                 bundleIdentifier: bundleIdentifier,
                 capability: .blocked("Text is currently selected."),
                 context: context,
-                inspection: inspection
+                inspection: inspection,
+                browserDomain: browserDomain
             )
         }
 
@@ -195,7 +203,8 @@ struct FocusSnapshotResolver {
             bundleIdentifier: bundleIdentifier,
             capability: .supported,
             context: context,
-            inspection: inspection
+            inspection: inspection,
+            browserDomain: browserDomain
         )
     }
 
@@ -244,6 +253,40 @@ struct FocusSnapshotResolver {
         }
 
         return ordered
+    }
+
+    /// Browser URLs often live on an ancestor `AXWebArea`, not on the focused editable node itself.
+    /// We walk upward first because that is the cheapest path to the semantic container that owns
+    /// the tab URL across Chromium- and WebKit-based browsers.
+    private func resolveBrowserDomain(near focusedElement: AXUIElement) -> BrowserDomainContext? {
+        if let directURL = AXHelper.urlValue(for: "AXURL" as CFString, on: focusedElement),
+           let domain = BrowserDomainNormalizer.browserDomainContext(for: directURL)
+        {
+            return domain
+        }
+
+        var currentElement: AXUIElement? = focusedElement
+        var fallbackDomain: BrowserDomainContext?
+        for _ in 0..<12 {
+            guard let element = currentElement else {
+                break
+            }
+
+            let role = AXHelper.stringValue(for: kAXRoleAttribute as CFString, on: element)
+            if let url = AXHelper.urlValue(for: "AXURL" as CFString, on: element),
+               let domain = BrowserDomainNormalizer.browserDomainContext(for: url)
+            {
+                if role == "AXWebArea" {
+                    return domain
+                }
+
+                fallbackDomain = fallbackDomain ?? domain
+            }
+
+            currentElement = AXHelper.parentElement(of: element)
+        }
+
+        return fallbackDomain
     }
 
     /// Runs deep geometry search from the resolved editable candidate first, then falls back to
