@@ -58,21 +58,21 @@ extension SuggestionCoordinator {
             latestStageMessage = "Updated autocomplete engine to \(snapshot.selectedEngine.displayLabel)."
         } else if previousSnapshot.selectedWordCountPreset != snapshot.selectedWordCountPreset {
             latestStageMessage = "Updated suggestion length to \(snapshot.selectedWordCountPreset.displayLabel)."
-        } else if previousSnapshot.effectivePromptMode != snapshot.effectivePromptMode {
-            latestStageMessage = "Updated prompt mode to \(snapshot.effectivePromptMode.displayLabel)."
         } else {
             latestStageMessage = "Updated autocomplete settings."
         }
 
-        // Legacy screenshot/OCR context capture is disabled for both prompt modes while we rebuild.
-        if visualContextStatus != .idle {
-            visualContextCoordinator.cancel(resetState: true)
+        // Cancel any obsolete context, then restart it if focus is still active.
+        visualContextCoordinator.cancel(resetState: true)
+        if let focusedSnapshot = focusModel.snapshot.context {
+            visualContextCoordinator.startSessionIfNeeded(for: focusedSnapshot)
         }
 
         if SuggestionAvailabilityEvaluator.shouldSchedulePrediction(
             globallyEnabled: settingsSnapshot.isGloballyEnabled,
             disabledAppBundleIdentifiers: settingsSnapshot.disabledAppBundleIdentifiers,
             inputMonitoringGranted: permissionManager.inputMonitoringGranted,
+            screenRecordingGranted: permissionManager.screenRecordingGranted,
             focusSnapshot: focusModel.snapshot
         )
         {

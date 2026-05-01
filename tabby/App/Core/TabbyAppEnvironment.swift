@@ -69,9 +69,8 @@ final class TabbyAppEnvironment {
         let suggestionInserter = SuggestionInserter(suppressionController: suppressionController)
         let overlayController = OverlayController(suggestionSettings: suggestionSettings)
         let activationIndicatorController = ActivationIndicatorController()
-        // DEPRECATED: This visual pipeline is intentionally left wired as legacy scaffolding while
-        // guided-mode context collection is rebuilt; live requests no longer consume OCR context.
-        let screenshotContextGenerator = ScreenshotContextGenerator()
+        let summarizer = LlamaVisualContextSummarizer(runtimeManager: runtimeManager)
+        let screenshotContextGenerator = ScreenshotContextGenerator(summarizer: summarizer)
         let visualContextCoordinator = VisualContextCoordinator(
             screenshotContextGenerator: screenshotContextGenerator,
             screenRecordingPermissionProvider: { permissionManager.screenRecordingGranted }

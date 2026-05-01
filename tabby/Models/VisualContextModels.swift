@@ -6,10 +6,6 @@ import Foundation
 ///
 /// The design goal is to model screenshot context as session state, just like suggestion state.
 /// That makes stale-result handling and UI diagnostics much easier to reason about.
-///
-/// DEPRECATED:
-/// As of the guided-mode rebuild, prompt construction no longer consumes screenshot/OCR context.
-/// Keep these types as legacy scaffolding while the replacement context pipeline is designed.
 
 /// Tunables for converting a focused-input screenshot into OCR text for prompt injection.
 /// These values are intentionally separate from `SuggestionConfiguration` because they govern
@@ -19,15 +15,17 @@ struct VisualContextConfiguration: Equatable, Sendable {
     let maxImageDimension: Int
     let minRecognizedCharacterCount: Int
     let maxRecognizedCharacters: Int
+    let maxSummaryCharacters: Int
 
     static let `default` = VisualContextConfiguration(
         // Capture a compact area around the focused field instead of an entire window.
-        snapshotDimension: 400,
+        snapshotDimension: 500,
         // Retina screenshots may still arrive at ~2x backing scale, so keep a small OCR ceiling.
         maxImageDimension: 900,
         minRecognizedCharacterCount: 12,
         // OCR text is injected directly into the completion prompt, so keep it intentionally short.
-        maxRecognizedCharacters: 320
+        maxRecognizedCharacters: 2000,
+        maxSummaryCharacters: 900
     )
 }
 
@@ -38,6 +36,7 @@ enum VisualContextStatus: Equatable, Sendable {
     case idle
     case capturing
     case extractingText
+    case summarizingText
     case ready
     case unavailable(String)
     case failed(String)
@@ -50,6 +49,8 @@ enum VisualContextStatus: Equatable, Sendable {
             return "Capturing nearby screen content."
         case .extractingText:
             return "Extracting visible text from the screenshot."
+        case .summarizingText:
+            return "Summarizing visible text for context."
         case .ready:
             return "Nearby visible text is ready."
         case let .unavailable(reason), let .failed(reason):
@@ -58,8 +59,9 @@ enum VisualContextStatus: Equatable, Sendable {
     }
 }
 
-/// The normalized OCR excerpt eventually injected into the completion prompt.
-/// This is intentionally plain text, not a model-generated summary.
+/// The final visual-context excerpt eventually injected into the completion prompt.
+/// This may be a model-generated summary when a summarizer is configured, or bounded normalized
+/// OCR text in tests/fallback wiring where no summarizer exists.
 struct VisualContextExcerpt: Equatable, Sendable {
     let text: String
 }
@@ -70,6 +72,9 @@ struct VisualContextExcerpt: Equatable, Sendable {
 struct FocusedInputAugmentationSession: Equatable, Sendable {
     let sessionID: UUID
     let elementIdentifier: String
+    /// Mirrors the monotonic counter from `FocusedInputSnapshot`. The coordinator compares this
+    /// alongside `elementIdentifier` to avoid CFHash-recycling false positives.
+    let focusChangeSequence: UInt64
     var status: VisualContextStatus
     var excerpt: VisualContextExcerpt?
 }

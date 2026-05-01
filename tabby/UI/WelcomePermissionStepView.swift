@@ -8,8 +8,8 @@ import SwiftUI
 /// an Allow button or Done state. The view stays subscribed to live permission state so cards
 /// update in real time as the user grants access through System Settings.
 ///
-/// Only the two required permissions (Accessibility, Input Monitoring) are shown during
-/// onboarding. Screen Recording is deprecated and intentionally omitted from the visible MVP flow.
+/// The onboarding list is derived from `TabbyPermissionKind.isRequiredForAutocomplete` so the
+/// product's permission model and first-run UI cannot drift apart.
 struct WelcomePermissionStepView: View {
     @ObservedObject var permissionManager: PermissionManager
 
@@ -17,8 +17,7 @@ struct WelcomePermissionStepView: View {
     let onBack: () -> Void
     let onContinue: () -> Void
 
-    /// Only show the permissions that matter for core autocomplete during onboarding.
-    /// Deprecated permissions stay out of the first-run UI so users see only what blocks setup.
+    /// Only show permissions that block core autocomplete.
     private var onboardingPermissions: [TabbyPermissionKind] {
         TabbyPermissionKind.allCases.filter(\.isRequiredForAutocomplete)
     }
@@ -29,7 +28,7 @@ struct WelcomePermissionStepView: View {
                 Text("Enable tabby")
                     .font(.system(size: 24, weight: .semibold, design: .rounded))
 
-                Text("Grant permissions so tabby can\nread your text and accept completions.")
+                Text("Grant permissions so tabby can\nread text, capture context, and accept completions.")
                     .font(.system(size: 14, design: .rounded))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -48,7 +47,7 @@ struct WelcomePermissionStepView: View {
             WelcomeNavigation(
                 canGoBack: true,
                 canContinue: permissionManager.requiredPermissionsGranted,
-                disabledHint: "Grant both permissions to continue.",
+                disabledHint: "Grant all permissions to continue.",
                 onBack: onBack,
                 onContinue: onContinue
             )

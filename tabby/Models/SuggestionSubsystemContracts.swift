@@ -71,7 +71,7 @@ protocol VisualContextCoordinating: AnyObject {
     var status: VisualContextStatus { get }
     var latestExcerpt: String? { get }
     var onStateChange: ((VisualContextStatus, String?) -> Void)? { get set }
-    var onInjectedContextReady: ((String) -> Void)? { get set }
+    var onInjectedContextReady: ((FocusedInputIdentity) -> Void)? { get set }
 
     func startSessionIfNeeded(for snapshotContext: FocusedInputSnapshot)
     func cancel(resetState: Bool)

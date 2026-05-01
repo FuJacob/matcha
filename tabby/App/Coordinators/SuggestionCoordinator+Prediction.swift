@@ -11,6 +11,7 @@ extension SuggestionCoordinator {
             globallyEnabled: settingsSnapshot.isGloballyEnabled,
             disabledAppBundleIdentifiers: settingsSnapshot.disabledAppBundleIdentifiers,
             inputMonitoringGranted: permissionManager.inputMonitoringGranted,
+            screenRecordingGranted: permissionManager.screenRecordingGranted,
             focusSnapshot: focusModel.snapshot
         ) {
             disablePredictions(reason: disabledReason)
@@ -49,6 +50,7 @@ extension SuggestionCoordinator {
             globallyEnabled: settingsSnapshot.isGloballyEnabled,
             disabledAppBundleIdentifiers: settingsSnapshot.disabledAppBundleIdentifiers,
             inputMonitoringGranted: permissionManager.inputMonitoringGranted,
+            screenRecordingGranted: permissionManager.screenRecordingGranted,
             focusSnapshot: snapshot
         ) {
             disablePredictions(reason: disabledReason)
@@ -68,10 +70,12 @@ extension SuggestionCoordinator {
         }
 
         let context = interactionState.materializeContext(from: rawContext)
+        let visualContextSummary = visualContextCoordinator.excerpt(for: context)
         let requestBuildResult = SuggestionRequestFactory.buildRequest(
             context: context,
             settings: settingsSnapshot,
-            configuration: configuration
+            configuration: configuration,
+            visualContextSummary: visualContextSummary
         )
         latestGenerationNumber = context.generation
         latestPromptPreview = requestBuildResult.promptPreview
@@ -126,6 +130,7 @@ extension SuggestionCoordinator {
             globallyEnabled: settingsSnapshot.isGloballyEnabled,
             disabledAppBundleIdentifiers: settingsSnapshot.disabledAppBundleIdentifiers,
             inputMonitoringGranted: permissionManager.inputMonitoringGranted,
+            screenRecordingGranted: permissionManager.screenRecordingGranted,
             focusSnapshot: snapshot
         ) {
 
@@ -235,6 +240,7 @@ extension SuggestionCoordinator {
             globallyEnabled: settingsSnapshot.isGloballyEnabled,
             disabledAppBundleIdentifiers: settingsSnapshot.disabledAppBundleIdentifiers,
             inputMonitoringGranted: permissionManager.inputMonitoringGranted,
+            screenRecordingGranted: permissionManager.screenRecordingGranted,
             focusSnapshot: focusModel.snapshot
         )
 
@@ -323,6 +329,22 @@ extension SuggestionCoordinator {
         latestStageMessage = "Disabled: \(reason)"
     }
 
+    /// Disables predictions without tearing down the visual context session.
+    ///
+    /// Transient disabled states — "text is selected", "secure field", brief "no focused element"
+    /// between field switches — should not cancel an in-progress OCR pipeline. The visual context
+    /// session is field-scoped and outlives individual prediction cycles; destroying it here would
+    /// force a redundant re-capture when the user starts typing again.
+    func disablePredictionsPreservingVisualContext(reason: String) {
+        cancelPredictionWork()
+        resetCachedGenerationContext()
+        interactionState.resetAll()
+        clearSuggestion(clearDiagnostics: true)
+        hideOverlay(reason: reason)
+        state = .disabled(reason)
+        latestStageMessage = "Disabled: \(reason)"
+    }
+
     /// Clears the active suggestion and optionally preserves or drops diagnostic breadcrumbs.
     func clearSuggestion(clearDiagnostics: Bool = false) {
         latestSuggestionPreview = nil
@@ -380,13 +402,13 @@ extension SuggestionCoordinator {
 
     /// Once screenshot context becomes ready, regenerate only if the user is still in the same
     /// field and there is enough typed text for a real inline completion request.
-    func schedulePredictionForCurrentFocusIfPossible(matching elementIdentifier: String) {
+    func schedulePredictionForCurrentFocusIfPossible(matching identity: FocusedInputIdentity) {
         focusModel.refreshNow()
         let snapshot = focusModel.snapshot
 
         guard SuggestionAvailabilityEvaluator.shouldSchedulePredictionWhenVisualContextBecomesReady(
             focusSnapshot: snapshot,
-            matching: elementIdentifier
+            matching: identity
         ) else {
             return
         }

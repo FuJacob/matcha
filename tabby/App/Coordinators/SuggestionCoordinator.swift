@@ -138,8 +138,8 @@ final class SuggestionCoordinator: ObservableObject {
             self?.latestVisualContextText = excerpt
         }
 
-        visualContextCoordinator.onInjectedContextReady = { [weak self] elementIdentifier in
-            self?.schedulePredictionForCurrentFocusIfPossible(matching: elementIdentifier)
+        visualContextCoordinator.onInjectedContextReady = { [weak self] identity in
+            self?.schedulePredictionForCurrentFocusIfPossible(matching: identity)
         }
 
         suggestionSettings.snapshotPublisher

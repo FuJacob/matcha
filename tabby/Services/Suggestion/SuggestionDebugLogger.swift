@@ -1,9 +1,10 @@
 import Foundation
 
 /// File overview:
-/// Emits high-signal console logs for the suggestion pipeline. This logger owns the mechanics of
-/// compact summary lines, full prompt/output blocks, and duplicate suppression so the coordinator
-/// can focus on state transitions instead of string rendering.
+/// Emits high-signal console logs for the suggestion pipeline when `-tabby-debug` is enabled.
+/// This logger owns the mechanics of compact summary lines, full prompt/output blocks, and
+/// duplicate suppression so the coordinator can focus on state transitions instead of string
+/// rendering.
 ///
 /// Logging is intentionally stateful because duplicate suppression depends on the previously
 /// emitted line. Keeping that state here avoids scattering "did we already print this?" checks
@@ -40,6 +41,10 @@ final class SuggestionDebugLogger {
         rawOutput: String? = nil,
         normalizedOutput: String? = nil
     ) {
+        guard TabbyDebugOptions.isEnabled else {
+            return
+        }
+
         guard consoleStages.contains(stage) else {
             return
         }
@@ -164,7 +169,7 @@ final class SuggestionDebugLogger {
         }
 
         lastLoggedMessage = line
-        print(line)
+        TabbyDebugOptions.log(line)
     }
 
     /// Compact one-line logs are good for scanning, but prompt debugging requires the exact payload.
@@ -180,7 +185,7 @@ final class SuggestionDebugLogger {
         let renderedText = text.isEmpty ? "<empty>" : text
         // Multi-line log blocks are easier to inspect than escaped one-line strings when debugging
         // prompt construction or output normalization.
-        print(
+        TabbyDebugOptions.log(
             """
             [Suggestion \(kind)] stage=\(stage) work=\(workID) generation=\(generationSummary)
             ----- BEGIN \(kind.uppercased()) -----

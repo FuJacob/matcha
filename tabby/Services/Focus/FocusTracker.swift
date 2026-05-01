@@ -59,6 +59,15 @@ final class FocusTracker {
     private var workspaceActivationObserver: NSObjectProtocol?
     private var scheduledRefreshTask: Task<Void, Never>?
 
+    /// Monotonic counter that increments every time a focus-changing AX notification fires.
+    ///
+    /// AX element identity is based on `CFHash`, which macOS can recycle across unrelated
+    /// elements. This counter gives downstream consumers a guaranteed-unique signal that
+    /// focus actually changed, independent of hash collisions. It only increments on
+    /// notifications that signal a *new element or window* — value and selection changes
+    /// within the same field do not bump it.
+    private var focusChangeSequence: UInt64 = 0
+
     init(
         permissionProvider: @escaping @MainActor () -> Bool,
         ignoredBundleIdentifier: String?,
@@ -84,10 +93,15 @@ final class FocusTracker {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                // Switching apps is always a focus change.
+                self?.focusChangeSequence += 1
                 self?.refreshNow()
             }
         }
 
+        // The initial observation counts as a focus change so the first snapshot always
+        // carries a non-zero sequence, distinguishing it from the default 0.
+        focusChangeSequence += 1
         refreshNow()
     }
 
@@ -121,6 +135,18 @@ final class FocusTracker {
 
     fileprivate func handleAXNotification(named notificationName: String) {
         onAXNotification?(notificationName)
+
+        // Only focus-changing notifications bump the sequence. Value/selection changes within
+        // the same field should not, because the visual-context coordinator uses this counter
+        // to decide whether to start a new OCR session.
+        let focusChangingNotifications: Set<String> = [
+            kAXFocusedUIElementChangedNotification as String,
+            kAXFocusedWindowChangedNotification as String,
+            kAXApplicationDeactivatedNotification as String,
+        ]
+        if focusChangingNotifications.contains(notificationName) {
+            focusChangeSequence += 1
+        }
 
         if notificationName == kAXApplicationDeactivatedNotification as String {
             scheduleRefresh(after: 0)
@@ -207,7 +233,8 @@ final class FocusTracker {
         return FocusCaptureResult(
             snapshot: snapshotResolver.resolveSnapshot(
                 focusedElement: focusedElement,
-                application: application
+                application: application,
+                focusChangeSequence: focusChangeSequence
             ),
             focusedElement: focusedElement
         )

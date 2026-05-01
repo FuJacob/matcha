@@ -1,17 +1,15 @@
 import CoreGraphics
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// File overview:
 /// Converts a newly focused input's surrounding screenshot into OCR text for prompt injection.
-/// The pipeline is now intentionally direct: focused snapshot -> screenshot crop -> Apple OCR ->
-/// normalized visible-text excerpt.
+/// The pipeline is: focused snapshot -> screenshot crop -> Apple OCR -> optional local summary ->
+/// bounded visible-context excerpt.
 ///
-/// This keeps the visual-context subsystem fast and conceptually honest. If Tabby later gains
-/// true multimodal support, this file remains the seam where OCR can be replaced.
-///
-/// DEPRECATED:
-/// Suggestion requests no longer consume screenshot/OCR text. This generator is retained only as
-/// legacy scaffolding until the rebuilt context pipeline is implemented.
+/// Keeping capture/OCR/summarization at this boundary gives the suggestion coordinator a small
+/// plain-text value instead of exposing raw screenshots or OCR implementation details.
 
 enum ScreenshotContextGenerationError: LocalizedError {
     case unavailable(String)
@@ -29,11 +27,13 @@ enum ScreenshotContextGenerationError: LocalizedError {
 final class ScreenshotContextGenerator {
     private let screenshotService: WindowScreenshotService
     private let textExtractor: ScreenTextExtractor
+    private let summarizer: VisualContextSummarizing?
     private let configuration: VisualContextConfiguration
 
     init(
         screenshotService: WindowScreenshotService? = nil,
         textExtractor: ScreenTextExtractor? = nil,
+        summarizer: VisualContextSummarizing? = nil,
         configuration: VisualContextConfiguration? = nil
     ) {
         let actualConfig = configuration ?? .default
@@ -44,11 +44,12 @@ final class ScreenshotContextGenerator {
                 maxImageDimension: actualConfig.maxImageDimension,
                 maxRecognizedCharacters: actualConfig.maxRecognizedCharacters
             )
+        self.summarizer = summarizer
         self.configuration = actualConfig
     }
 
-    /// Captures a compact region around the focused input, runs OCR, and returns normalized visible
-    /// text that can be injected directly into the completion prompt.
+    /// Captures a compact region around the focused input and returns a bounded text excerpt that
+    /// can be injected into the completion prompt.
     func generateContext(
         for context: FocusedInputSnapshot,
         onStatusChange: (@Sendable (VisualContextStatus) async -> Void)? = nil
@@ -94,7 +95,7 @@ final class ScreenshotContextGenerator {
 
             let fallbackText = normalizeRecognizedText(windowTitle)
             log("context-ocr-empty using-window-title-fallback")
-            return VisualContextExcerpt(text: fallbackText)
+            return VisualContextExcerpt(text: boundedSummaryText(fallbackText))
         } catch let error as ScreenTextExtractionError {
             log("context-ocr-failed reason=\(error.localizedDescription)")
             throw ScreenshotContextGenerationError.unavailable(error.localizedDescription)
@@ -106,6 +107,14 @@ final class ScreenshotContextGenerator {
         let normalizedText = normalizeRecognizedText(extractedText)
         log("context-ocr-ready chars=\(normalizedText.count)")
 
+        if TabbyDebugOptions.isEnabled {
+            saveDebugScreenshot(
+                screenshot.image,
+                text: extractedText,
+                name: sanitizedDebugName(from: context.applicationName)
+            )
+        }
+
         guard hasMeaningfulSignal(normalizedText) else {
             log("context-unavailable weak-screenshot-signal")
             throw ScreenshotContextGenerationError.unavailable(
@@ -113,10 +122,29 @@ final class ScreenshotContextGenerator {
             )
         }
 
-        log("context-ready text=\(preview(normalizedText))")
+        let generatedContextText: String
+        if let summarizer = summarizer {
+            await onStatusChange?(.summarizingText)
+            do {
+                generatedContextText = try await summarizer.summarize(
+                    text: normalizedText,
+                    applicationName: context.applicationName
+                )
+            } catch {
+                log("context-summarization-failed reason=\(error.localizedDescription)")
+                throw ScreenshotContextGenerationError.failed(
+                    "Summarization failed: \(error.localizedDescription)"
+                )
+            }
+        } else {
+            generatedContextText = normalizedText
+        }
+
+        let finalContextText = boundedSummaryText(generatedContextText)
+        log("context-ready chars=\(finalContextText.count)")
 
         return VisualContextExcerpt(
-            text: normalizedText
+            text: finalContextText
         )
     }
 
@@ -138,6 +166,15 @@ final class ScreenshotContextGenerator {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Applies the final prompt-injection budget after optional summarization.
+    ///
+    /// `maxRecognizedCharacters` protects the OCR and summarizer input. This separate cap protects
+    /// the autocomplete prompt from a verbose model summary or from the raw-OCR fallback path.
+    private func boundedSummaryText(_ text: String) -> String {
+        String(text.prefix(configuration.maxSummaryCharacters))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// We reject OCR text that is mostly punctuation or numeric noise because that would hurt
     /// the completion prompt more than help it.
     private func hasMeaningfulSignal(_ text: String) -> Bool {
@@ -151,17 +188,51 @@ final class ScreenshotContextGenerator {
     }
 
     private func log(_ message: String) {
-        _ = message
+        TabbyDebugOptions.log("[ScreenshotContextGenerator] \(message)")
     }
 
-    private func preview(_ text: String) -> String {
-        let compact = text.replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if compact.count <= 80 {
-            return compact
+    private func saveDebugScreenshot(_ image: CGImage, text: String, name: String) {
+        guard let desktopURL = FileManager.default.urls(
+            for: .desktopDirectory,
+            in: .userDomainMask
+        ).first else {
+            return
         }
 
-        let cut = compact.index(compact.startIndex, offsetBy: 80)
-        return "\(compact[..<cut])..."
+        let url = desktopURL.appendingPathComponent("tabby-debug-screenshots")
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss-SSS"
+        let timestamp = formatter.string(from: Date())
+
+        let fileURL = url.appendingPathComponent("\(name)_\(timestamp).png")
+        let textURL = url.appendingPathComponent("\(name)_\(timestamp).txt")
+
+        if let dest = CGImageDestinationCreateWithURL(
+            fileURL as CFURL,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ) {
+            CGImageDestinationAddImage(dest, image, nil)
+            CGImageDestinationFinalize(dest)
+            TabbyDebugOptions.log(
+                "[ScreenshotContextGenerator] saved-debug-screenshot path=\(fileURL.path)"
+            )
+
+            try? text.write(to: textURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func sanitizedDebugName(from rawName: String) -> String {
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let replacement = UnicodeScalar("_")
+        let sanitizedScalars = rawName.unicodeScalars.map { scalar in
+            allowedCharacters.contains(scalar) ? scalar : replacement
+        }
+        let sanitizedName = String(String.UnicodeScalarView(sanitizedScalars))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        return sanitizedName.isEmpty ? "unknown-app" : sanitizedName
     }
 }

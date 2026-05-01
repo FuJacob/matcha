@@ -1,4 +1,5 @@
 import Combine
+import CoreGraphics
 import XCTest
 @testable import tabby
 
@@ -25,6 +26,39 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         )
     }
 
+    private func makeSupportedSnapshotWithContext(
+        elementIdentifier: String = "field",
+        focusChangeSequence: UInt64 = 1,
+        precedingText: String = "hello"
+    ) -> FocusSnapshot {
+        let context = FocusedInputSnapshot(
+            applicationName: "TestApp",
+            bundleIdentifier: "app.test",
+            processIdentifier: 123,
+            elementIdentifier: elementIdentifier,
+            role: "AXTextField",
+            subrole: nil,
+            caretRect: .zero,
+            inputFrameRect: nil,
+            caretSource: "test",
+            caretQuality: .exact,
+            observedCharWidth: nil,
+            precedingText: precedingText,
+            trailingText: "",
+            selection: NSRange(location: precedingText.count, length: 0),
+            isSecure: false,
+            focusChangeSequence: focusChangeSequence
+        )
+
+        return FocusSnapshot(
+            applicationName: "TestApp",
+            bundleIdentifier: "app.test",
+            capability: .supported,
+            context: context,
+            inspection: nil
+        )
+    }
+
     // MARK: - disabledReason: exact-string contracts
 
     /// If this string ever changes, the menu-bar status copy will silently
@@ -33,6 +67,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let reason = SuggestionAvailabilityEvaluator.disabledReason(
             globallyEnabled: false,
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
@@ -43,12 +78,26 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let reason = SuggestionAvailabilityEvaluator.disabledReason(
             globallyEnabled: true,
             inputMonitoringGranted: false,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
         XCTAssertNotNil(reason)
         XCTAssertTrue(reason?.contains("Input Monitoring") ?? false,
                       "reason should point the user at the permission they need to grant")
+    }
+
+    func test_disabledReason_whenScreenRecordingDenied_mentionsPermission() {
+        let reason = SuggestionAvailabilityEvaluator.disabledReason(
+            globallyEnabled: true,
+            inputMonitoringGranted: true,
+            screenRecordingGranted: false,
+            focusSnapshot: makeSnapshot(capability: .supported)
+        )
+
+        XCTAssertNotNil(reason)
+        XCTAssertTrue(reason?.contains("Screen Recording") ?? false,
+                      "reason should point the user at the permission needed for visual context")
     }
 
     // MARK: - disabledReason: guard ordering
@@ -60,6 +109,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let reason = SuggestionAvailabilityEvaluator.disabledReason(
             globallyEnabled: false,
             inputMonitoringGranted: false,
+            screenRecordingGranted: false,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
@@ -71,6 +121,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
             globallyEnabled: false,
             disabledAppBundleIdentifiers: ["app.test"],
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
@@ -82,6 +133,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
             globallyEnabled: true,
             disabledAppBundleIdentifiers: ["com.apple.Safari"],
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(
                 applicationName: "Safari",
                 bundleIdentifier: "com.apple.Safari",
@@ -102,6 +154,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let reason = SuggestionAvailabilityEvaluator.disabledReason(
             globallyEnabled: true,
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .blocked(blockReason))
         )
 
@@ -113,6 +166,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let reason = SuggestionAvailabilityEvaluator.disabledReason(
             globallyEnabled: true,
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .unsupported(unsupportedReason))
         )
 
@@ -125,6 +179,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let reason = SuggestionAvailabilityEvaluator.disabledReason(
             globallyEnabled: true,
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
@@ -140,6 +195,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let ok = SuggestionAvailabilityEvaluator.shouldSchedulePrediction(
             globallyEnabled: true,
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
@@ -150,6 +206,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let ok = SuggestionAvailabilityEvaluator.shouldSchedulePrediction(
             globallyEnabled: false,
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
@@ -161,6 +218,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
             globallyEnabled: true,
             disabledAppBundleIdentifiers: ["app.test"],
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
@@ -172,6 +230,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
             globallyEnabled: true,
             disabledAppBundleIdentifiers: ["app.other"],
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
         )
 
@@ -182,7 +241,47 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         let ok = SuggestionAvailabilityEvaluator.shouldSchedulePrediction(
             globallyEnabled: true,
             inputMonitoringGranted: true,
+            screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .unsupported("No focused text input"))
+        )
+
+        XCTAssertFalse(ok)
+    }
+
+    func test_shouldSchedulePrediction_falseWhenScreenRecordingDenied() {
+        let ok = SuggestionAvailabilityEvaluator.shouldSchedulePrediction(
+            globallyEnabled: true,
+            inputMonitoringGranted: true,
+            screenRecordingGranted: false,
+            focusSnapshot: makeSnapshot(capability: .supported)
+        )
+
+        XCTAssertFalse(ok)
+    }
+
+    func test_visualContextReadyScheduling_trueWhenElementAndFocusSequenceMatch() {
+        let snapshot = makeSupportedSnapshotWithContext(
+            elementIdentifier: "field",
+            focusChangeSequence: 42
+        )
+
+        let ok = SuggestionAvailabilityEvaluator.shouldSchedulePredictionWhenVisualContextBecomesReady(
+            focusSnapshot: snapshot,
+            matching: FocusedInputIdentity(elementIdentifier: "field", focusChangeSequence: 42)
+        )
+
+        XCTAssertTrue(ok)
+    }
+
+    func test_visualContextReadyScheduling_falseWhenFocusSequenceDiffers() {
+        let snapshot = makeSupportedSnapshotWithContext(
+            elementIdentifier: "field",
+            focusChangeSequence: 42
+        )
+
+        let ok = SuggestionAvailabilityEvaluator.shouldSchedulePredictionWhenVisualContextBecomesReady(
+            focusSnapshot: snapshot,
+            matching: FocusedInputIdentity(elementIdentifier: "field", focusChangeSequence: 41)
         )
 
         XCTAssertFalse(ok)

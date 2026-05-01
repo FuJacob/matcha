@@ -11,6 +11,7 @@ enum SuggestionAvailabilityEvaluator {
         globallyEnabled: Bool = true,
         disabledAppBundleIdentifiers: Set<String> = [],
         inputMonitoringGranted: Bool,
+        screenRecordingGranted: Bool,
         focusSnapshot: FocusSnapshot
     ) -> String? {
         guard globallyEnabled else {
@@ -27,6 +28,11 @@ enum SuggestionAvailabilityEvaluator {
             return "Input Monitoring permission is required before Tabby can react to typing."
         }
 
+        guard screenRecordingGranted else {
+            return "Screen Recording permission is required before Tabby can build visual context "
+                + "for autocomplete."
+        }
+
         switch focusSnapshot.capability {
         case .supported:
             return nil
@@ -39,23 +45,25 @@ enum SuggestionAvailabilityEvaluator {
         globallyEnabled: Bool = true,
         disabledAppBundleIdentifiers: Set<String> = [],
         inputMonitoringGranted: Bool,
+        screenRecordingGranted: Bool,
         focusSnapshot: FocusSnapshot
     ) -> Bool {
         disabledReason(
             globallyEnabled: globallyEnabled,
             disabledAppBundleIdentifiers: disabledAppBundleIdentifiers,
             inputMonitoringGranted: inputMonitoringGranted,
+            screenRecordingGranted: screenRecordingGranted,
             focusSnapshot: focusSnapshot
         ) == nil
     }
 
     static func shouldSchedulePredictionWhenVisualContextBecomesReady(
         focusSnapshot: FocusSnapshot,
-        matching elementIdentifier: String
+        matching identity: FocusedInputIdentity
     ) -> Bool {
         guard case .supported = focusSnapshot.capability,
               let context = focusSnapshot.context,
-              context.elementIdentifier == elementIdentifier
+              context.identity == identity
         else {
             return false
         }

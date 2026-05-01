@@ -9,35 +9,17 @@ import Foundation
 /// prompt string. Keeping that composition isolated here prevents prompt policy from leaking into
 /// `SuggestionRequestFactory` or the runtime lifecycle layer.
 enum LlamaPromptRenderer {
+    /// Renders Tabby's local-model prompt.
+    ///
+    /// Tabby now always uses the instruction-rendered path. That makes custom user guidance the
+    /// default behavior and avoids keeping a second "fast" prompt contract that can drift from the
+    /// real product experience.
     static func prompt(
         prefixText: String,
         applicationName: String,
-        promptMode: SuggestionPromptMode,
         completionLengthInstruction: String,
-        customAIInstructions: String?
-    ) -> String {
-        switch promptMode {
-        case .prefixOnly:
-            // Fast mode is intentionally the low-overhead path: send only the user's local prefix
-            // text. This keeps latency down and minimizes extra steering for short completions.
-            return prefixText
-        case .guided:
-            return guidedPrompt(
-                prefixText: prefixText,
-                applicationName: applicationName,
-                completionLengthInstruction: completionLengthInstruction,
-                customAIInstructions: customAIInstructions
-            )
-        }
-    }
-
-    /// The instructions-based mode keeps a more explicit contract for local models that benefit
-    /// from stronger task framing, especially when testing how much user guidance the model follows.
-    private static func guidedPrompt(
-        prefixText: String,
-        applicationName: String,
-        completionLengthInstruction: String,
-        customAIInstructions: String?
+        customAIInstructions: String?,
+        visualContextSummary: String? = nil
     ) -> String {
         var sections = [
             "You are Tabby's inline autocomplete engine for a macOS text field.",
@@ -62,13 +44,17 @@ enum LlamaPromptRenderer {
             sections.append(contentsOf: customInstructionLines)
         }
 
-        sections.append(contentsOf: [
-            "",
-            "Context:",
-            "App: \(applicationName)",
-            "Text before caret:",
-            prefixText
-        ])
+        sections.append("")
+        sections.append("Context:")
+        sections.append("App: \(applicationName)")
+
+        if let summary = visualContextSummary, !summary.isEmpty {
+            sections.append("Screen content:")
+            sections.append(summary)
+        }
+
+        sections.append("Text before caret:")
+        sections.append(prefixText)
 
         return sections.joined(separator: "\n")
     }

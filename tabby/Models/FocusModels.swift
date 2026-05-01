@@ -5,6 +5,16 @@ import Foundation
 /// Pure data models for focused-input state, AX capability support, and stale-result signatures.
 /// These types let the rest of Tabby reason about focus without depending on raw Accessibility values.
 
+/// Immutable identity for one focused input observation.
+///
+/// `elementIdentifier` is still useful because it describes the AX node we resolved, but it is not
+/// globally unique over time: macOS can recycle `CFHash` values after AX elements are destroyed.
+/// Pairing it with `focusChangeSequence` gives async consumers a stable "same focus event" key.
+struct FocusedInputIdentity: Equatable, Sendable {
+    let elementIdentifier: String
+    let focusChangeSequence: UInt64
+}
+
 /// Describes how trustworthy the resolved caret rect is.
 ///
 /// This distinction matters because not every downstream feature should treat all caret geometry
@@ -135,6 +145,67 @@ struct FocusedInputSnapshot: Equatable {
     let trailingText: String
     let selection: NSRange
     let isSecure: Bool
+
+    /// Monotonic counter that increments every time a focus-changing AX notification fires
+    /// (`kAXFocusedUIElementChanged`, `kAXFocusedWindowChanged`, app activation, etc.).
+    ///
+    /// `elementIdentifier` is built from `CFHash`, which macOS can recycle when AX nodes are
+    /// destroyed and recreated. That makes `elementIdentifier` unreliable for detecting field
+    /// switches — two genuinely different text fields can produce the same identifier.
+    ///
+    /// This counter gives downstream consumers (especially `VisualContextCoordinator`) a
+    /// guaranteed-unique signal that focus actually changed, independent of hash collisions.
+    /// The initializer default of 0 keeps test and legacy call sites compiling without changes.
+    let focusChangeSequence: UInt64
+
+    /// Explicit initializer keeps `focusChangeSequence` immutable while preserving the old
+    /// memberwise-call ergonomics for tests that do not care about focus identity.
+    ///
+    /// Swift omits `let` properties with inline defaults from the synthesized memberwise
+    /// initializer. Writing the initializer ourselves gives production code a way to pass the real
+    /// focus sequence, and keeps existing call sites working through the default value.
+    init(
+        applicationName: String,
+        bundleIdentifier: String,
+        processIdentifier: Int32,
+        elementIdentifier: String,
+        role: String,
+        subrole: String?,
+        caretRect: CGRect,
+        inputFrameRect: CGRect?,
+        caretSource: String,
+        caretQuality: CaretGeometryQuality,
+        observedCharWidth: CGFloat?,
+        precedingText: String,
+        trailingText: String,
+        selection: NSRange,
+        isSecure: Bool,
+        focusChangeSequence: UInt64 = 0
+    ) {
+        self.applicationName = applicationName
+        self.bundleIdentifier = bundleIdentifier
+        self.processIdentifier = processIdentifier
+        self.elementIdentifier = elementIdentifier
+        self.role = role
+        self.subrole = subrole
+        self.caretRect = caretRect
+        self.inputFrameRect = inputFrameRect
+        self.caretSource = caretSource
+        self.caretQuality = caretQuality
+        self.observedCharWidth = observedCharWidth
+        self.precedingText = precedingText
+        self.trailingText = trailingText
+        self.selection = selection
+        self.isSecure = isSecure
+        self.focusChangeSequence = focusChangeSequence
+    }
+
+    var identity: FocusedInputIdentity {
+        FocusedInputIdentity(
+            elementIdentifier: elementIdentifier,
+            focusChangeSequence: focusChangeSequence
+        )
+    }
 
     /// The signature lets later pipeline stages detect whether a completion result is stale.
     /// This is the same idea you would use in a React app with a derived cache key.

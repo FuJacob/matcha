@@ -1,50 +1,209 @@
-# Tabby App Collaboration Rules
+# Tabby Codex Instructions
 
-## Learning-first expectation
+## Project Identity
+
+Tabby is a macOS menu bar app for on-device inline autocomplete. The core loop is:
+
+1. Track the currently focused editable field through Accessibility.
+2. Monitor global keyboard input without stealing focus.
+3. Decide whether the field, permissions, settings, and runtime are eligible.
+4. Build an autocomplete request from the focused text context and optional visual context.
+5. Generate locally through Apple Intelligence or llama.cpp.
+6. Normalize the model output into a short continuation.
+7. Render ghost text near the caret.
+8. Insert accepted chunks when the user presses `Tab` while keeping the remaining tail alive.
+
+Privacy and local-first behavior matter. Do not introduce hosted API dependencies unless the user
+explicitly asks for that direction.
+
+## Learning-First Collaboration
 
 - Explain both the "what" and the "why" for architecture and code changes.
-- Assume the user is actively learning Swift, AppKit, Accessibility APIs, and macOS app architecture.
+- Assume the user is actively learning Swift, AppKit, Accessibility APIs, llama.cpp integration,
+  async/await, actor isolation, and macOS app architecture.
 - Teach at the file, type, and subsystem level, not just the line level.
-- Call out tradeoffs when there are multiple valid implementation choices.
-- Prefer clean boundaries (App, UI, Services, Models, Support) over quick coupling.
+- Call out tradeoffs when there are multiple valid approaches.
+- Prefer clean boundaries over quick coupling, especially across `App`, `UI`, `Services`, `Models`,
+  and `Support`.
 
-## Teaching depth requirements
+When creating or editing a file, explain:
 
-- When creating or editing a file, explain what the file is for, why it exists, and how it fits into the overall architecture.
-- When adding a type such as a `struct`, `class`, `enum`, or protocol, explain:
-  - what responsibility it owns
-  - what other objects it collaborates with
-  - why it should exist as its own type instead of being folded into another file
-- When using Swift-specific syntax or Apple-specific APIs, explain the concept in plain language.
-  Examples include:
-  - property wrappers such as `@Published`, `@ObservedObject`, `@StateObject`, `@MainActor`
-  - `Task`, async/await, actor isolation, closures, convenience initializers
-  - Core Foundation / Accessibility APIs like `AXUIElement`, `CFTypeRef`, `unsafeBitCast`
-- Do not assume the user already understands lifecycle ownership. Explain who owns what, how long it lives, and why that matters.
-- When fixing a bug, explain the root cause in engineering terms, not just the patch.
-- When adding architecture, explain data flow end-to-end: where state originates, where it is transformed, and where it is rendered.
+- what the file is responsible for
+- why the file exists as its own boundary
+- which objects own it or collaborate with it
+- how data flows into and out of it
 
-## Code comment expectations
+When adding a `struct`, `class`, `enum`, actor, or protocol, explain:
 
-- Add real teaching comments, not just labels.
-- Prefer file-level and type-level doc comments that explain purpose and design.
-- Add targeted inline comments for tricky logic, lifecycle behavior, concurrency, Core Foundation bridging, and macOS quirks.
-- Comments should explain why the code is written this way, what invariant it protects, or what pitfall it avoids.
+- what responsibility it owns
+- what other objects it collaborates with
+- why it should exist as its own type instead of being folded into another file
+- how long it lives and who owns it
+
+## Repository Map
+
+- `tabby/App/`: app entrypoint, composition root, lifecycle wiring, and coordinators.
+- `tabby/UI/`: SwiftUI/AppKit presentation: settings, onboarding, menu views, overlays, and
+  visual affordances.
+- `tabby/Services/`: side-effectful boundaries: Accessibility, input monitoring, text insertion,
+  screenshots/OCR, visual context, llama runtime, permissions, downloads, updates, and launch
+  services.
+- `tabby/Models/`: shared value types, settings snapshots, states, domain models, and protocol
+  contracts.
+- `tabby/Support/`: pure helper logic, prompt rendering, availability rules, normalization,
+  reconciliation, geometry helpers, and low-level bridging utilities.
+- `tabbyTests/`: unit and microbench tests. Prefer testing pure `Support/` and `Models/` logic
+  when possible.
+- `LlamaRuntime/`: local llama.swift / llama.cpp integration artifacts.
+
+## App Ownership
+
+Start here when you need to understand lifecycle:
+
+1. `tabby/App/Core/TabbyApp.swift`
+2. `tabby/App/Core/AppDelegate.swift`
+3. `tabby/App/Core/TabbyAppEnvironment.swift`
+
+`TabbyAppEnvironment` builds the long-lived dependency graph once. `AppDelegate` starts, stops,
+and wires cross-subsystem subscriptions. SwiftUI views should observe objects from that graph
+rather than creating services directly.
+
+This ownership rule prevents duplicate Accessibility observers, duplicate input monitors, runtime
+reload races, and mismatched settings state.
+
+## Suggestion Pipeline
+
+Read the coordinator in this order:
+
+1. `tabby/App/Coordinators/SuggestionCoordinator.swift`
+2. `tabby/App/Coordinators/SuggestionCoordinator+Lifecycle.swift`
+3. `tabby/App/Coordinators/SuggestionCoordinator+Input.swift`
+4. `tabby/App/Coordinators/SuggestionCoordinator+Prediction.swift`
+5. `tabby/App/Coordinators/SuggestionCoordinator+Acceptance.swift`
+
+The coordinator owns orchestration and user-facing state. It should not absorb every rule. Prefer:
+
+- `SuggestionRequestFactory` for pure request construction
+- `SuggestionAvailabilityEvaluator` for pure gating decisions
+- `SuggestionSessionReconciler` for acceptance and active-tail reconciliation
+- `SuggestionTextNormalizer` for backend-independent output cleanup
+- `SuggestionWorkController` for generation task identity/cancellation
+- `SuggestionInteractionState` for active suggestion session storage
+
+This split matters because autocomplete is a state machine. Pure rules are easier to test and reason
+about than coordinator mutations.
+
+## Focus And Accessibility
+
+Focus and geometry live in:
+
+- `FocusTracker`: observes focus/value/selection changes and publishes snapshots.
+- `FocusSnapshotResolver`: reduces raw AX elements into Tabby-supported focus snapshots.
+- `AXTextGeometryResolver`: resolves caret and input geometry.
+- `AXHelper`: low-level Accessibility/Core Foundation helper calls.
+- `FocusModels`: pure focus values, identities, capabilities, and debug inspection data.
+
+Accessibility data is eventually consistent and app-specific. Browser editors, Electron apps,
+native AppKit fields, and secure fields expose different AX shapes. Preserve stale-result guards,
+`focusChangeSequence`, and capability checks unless the change explicitly replaces them.
+
+## Visual Context And OCR
+
+Visual context currently flows through:
+
+- `VisualContextCoordinator`: field-scoped visual-context session lifecycle.
+- `ScreenshotContextGenerator`: screenshot -> OCR -> optional summary -> bounded excerpt.
+- `WindowScreenshotService`: captures the relevant window or region.
+- `ScreenTextExtractor`: Vision OCR extraction.
+- `LlamaVisualContextSummarizer`: optional local summary using the selected llama runtime.
+- `VisualContextModels`: configuration, status, and excerpt values.
+
+Do not put raw screenshots, unbounded OCR dumps, or noisy AX tree text directly into prompts.
+Normalize, bound, and mark unavailable states explicitly. Screen Recording permission is separate
+from Accessibility and Input Monitoring.
+
+## Runtime And Prompting
+
+Runtime generation is split by responsibility:
+
+- `SuggestionEngineRouter`: selects Apple Intelligence vs Open Source.
+- `FoundationModelSuggestionEngine`: Apple on-device generation path.
+- `LlamaSuggestionEngine`: request-to-prompt, llama result handling, and cache reset handoff.
+- `LlamaRuntimeManager`: UI-facing runtime state, model selection, warmup, and lifecycle control.
+- `LlamaRuntimeCore`: serialized actor around mutable llama.cpp pointers, prompt tokenization,
+  KV-cache reuse, sampling, and shutdown.
+- `LlamaPromptRenderer`: prompt construction.
+
+Keep llama.cpp pointer work serialized inside `LlamaRuntimeCore`. The manager should publish state;
+the core should own native correctness.
+
+## UI And Overlays
+
+- `OverlayController` owns the ghost-text panel lifecycle and positioning.
+- `SuggestionOverlayPresenter` decides whether a suggestion should be shown or hidden.
+- `ActivationIndicatorController` owns the optional caret/field-edge indicator.
+- `FocusDebugOverlayController` is for developer visibility and should stay gated behind debug
+  options, not normal user settings.
+- `SettingsView` and onboarding views should remain presentation-focused. Push behavior into
+  services, models, or support helpers.
+
+## Swift And Concurrency Rules
+
+- Use `@MainActor` for UI, AppKit, SwiftUI state, most Accessibility access, and published models.
+- Use actors or explicit serialization for mutable native/runtime state.
+- Do not block the main actor with OCR, screenshots, model loading, or generation.
+- Make cancellation and stale-result checks explicit around async work. The user can keep typing,
+  switch apps, focus another field, or accept a partial suggestion while work is still running.
+- Prefer narrow protocols from `SuggestionSubsystemContracts.swift` when the coordinator only needs
+  behavior, not a concrete service.
+- Treat Core Foundation and AX bridging as unsafe boundaries. Add comments that explain ownership,
+  casting, and failure handling.
+
+## Teaching Comment Standard
+
+- Add real teaching comments, not labels.
+- Prefer file-level and type-level `///` comments that explain purpose, ownership, and design.
+- Add targeted inline comments for tricky lifecycle behavior, concurrency, cancellation, AX timing,
+  Core Foundation bridging, native pointer state, and macOS quirks.
+- Comments should explain why the code is written this way, which invariant it protects, or which
+  pitfall it avoids.
 - Avoid useless comments that merely restate the code.
-- If a piece of Swift syntax is likely to be unfamiliar, annotate it briefly the first time it appears.
+- If Swift syntax is likely to be unfamiliar, annotate it briefly the first time it appears in a new
+  concept-heavy area. Examples: `@Published`, `@ObservedObject`, `@StateObject`, `@MainActor`,
+  `Task`, async/await, actor isolation, closures, convenience initializers, `AXUIElement`,
+  `CFTypeRef`, and `unsafeBitCast`.
 
-## Response expectations
+## Change Strategy
 
-- In chat responses, explain new files and objects in a way that helps the user build a mental model of the system.
-- When making multi-file changes, include a short walkthrough of how the pieces connect.
-- If there are multiple reasonable approaches, explain why one was chosen and what the rejected alternatives cost.
-- If a bug reveals a broader lesson about architecture, ownership, concurrency, or API design, state that lesson explicitly.
-- Call out tradeoffs when there are multiple valid implementation choices.
+Prefer this order when changing behavior:
 
-## Current architecture intent
+1. Pure rules in `Support/`
+2. Domain models and contracts in `Models/`
+3. Service boundary behavior in `Services/`
+4. Coordinator orchestration in `App/`
+5. SwiftUI/AppKit presentation in `UI/`
 
-- `App/`: app entrypoint and lifecycle ownership.
-- `UI/`: menu bar views and presentation concerns.
-- `Services/`: side-effectful boundaries (permissions, process management, IO).
-- `Models/`: shared data/state contracts.
-- `Support/`: pure helper/resolution logic.
+This order reduces regression risk because deterministic code changes before stateful orchestration.
+It also creates better tests.
+
+## Validation
+
+Use the narrowest meaningful validation first, then broaden if the change touches shared behavior.
+Common commands:
+
+```bash
+xcodebuild -project tabby.xcodeproj -scheme tabby -destination 'platform=macOS' build
+xcodebuild -project tabby.xcodeproj -scheme tabby -destination 'platform=macOS' build-for-testing
+```
+
+Run targeted tests for changed pure logic when available. If `xcodebuild test` fails locally because
+of app-hosted test bundle signing or Team ID mismatch, report the exact failure and still provide the
+successful build/build-for-testing result.
+
+## Git And Worktree Safety
+
+- The worktree may already contain user edits. Never revert unrelated changes.
+- Before editing, inspect `git status -sb` and the relevant files.
+- Keep commits scoped. Do not silently include unrelated dirty files.
+- Avoid destructive commands such as `git reset --hard` or `git checkout --` unless the user
+  explicitly asks for that operation.

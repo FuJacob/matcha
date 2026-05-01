@@ -58,33 +58,6 @@ enum SuggestionWordCountPreset: String, CaseIterable, Equatable, Hashable, Senda
     }
 }
 
-/// Prompt construction strategy for inline completion.
-/// Both modes share the same generation pipeline; only the prompt wording changes.
-enum SuggestionPromptMode: String, CaseIterable, Equatable, Hashable, Sendable, Identifiable {
-    case guided
-    case prefixOnly
-
-    var id: String { rawValue }
-
-    var displayLabel: String {
-        switch self {
-        case .guided:
-            return "Use My Instructions"
-        case .prefixOnly:
-            return "Fast"
-        }
-    }
-
-    var compactLabel: String {
-        switch self {
-        case .guided:
-            return "Instructions"
-        case .prefixOnly:
-            return "Fast"
-        }
-    }
-}
-
 /// User-facing indicator display mode for supported text fields.
 /// This replaces the old caret-indicator boolean so Tabby can express multiple affordances
 /// without smuggling extra meaning through one toggle.
@@ -141,7 +114,6 @@ struct SuggestionConfiguration: Equatable, Sendable {
     /// the app's starting value for a fresh install.
     let defaultCustomAIInstructions: String?
     let defaultWordCountPreset: SuggestionWordCountPreset
-    let defaultPromptMode: SuggestionPromptMode
 
     /// The configuration shipped by the app today.
     /// These are product defaults, not temporary debug overrides.
@@ -168,8 +140,7 @@ struct SuggestionConfiguration: Equatable, Sendable {
             My name is Jacob Fu. I usually write in English.
             Write in a friendly, professional and empathetic voice.
             """,
-        defaultWordCountPreset: .sevenToTwelve,
-        defaultPromptMode: .prefixOnly
+        defaultWordCountPreset: .sevenToTwelve
     )
 }
 
@@ -192,6 +163,10 @@ struct FocusedInputContext: Equatable, Sendable {
     let trailingText: String
     let selection: NSRange
     let isSecure: Bool
+    /// Carries the immutable focus-observation identity across debounce/generation boundaries.
+    /// Without this, later visual-context lookups could fall back to `elementIdentifier` alone and
+    /// reintroduce the CFHash collision class this sequence is meant to avoid.
+    let focusChangeSequence: UInt64
     let generation: UInt64
 
     init(snapshot: FocusedInputSnapshot, generation: UInt64) {
@@ -209,7 +184,15 @@ struct FocusedInputContext: Equatable, Sendable {
         trailingText = snapshot.trailingText
         selection = snapshot.selection
         isSecure = snapshot.isSecure
+        focusChangeSequence = snapshot.focusChangeSequence
         self.generation = generation
+    }
+
+    var identity: FocusedInputIdentity {
+        FocusedInputIdentity(
+            elementIdentifier: elementIdentifier,
+            focusChangeSequence: focusChangeSequence
+        )
     }
 
     /// Content-only fingerprint — mirrors `FocusedInputSnapshot.contentSignature`.
@@ -253,6 +236,8 @@ struct SuggestionRequest: Equatable, Sendable {
     /// Optional user-provided style guidance. We keep this separate from base product behavior so
     /// future settings/personalization work can evolve independently from prompt safety rules.
     let customAIInstructions: String?
+    /// Ephemeral screen context summary injected only when available for the active text field.
+    let visualContextSummary: String?
 }
 
 /// The engine's normalized response, including raw model text for debugging.

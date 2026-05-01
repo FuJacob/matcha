@@ -2,15 +2,15 @@ import AppKit
 import Foundation
 import SwiftUI
 
-/// Gated behind `-tabby-debug-caret-overlay`. Shows a bright colored line at the resolved caret
+/// Gated behind `-tabby-debug`. Shows a bright colored line at the resolved caret
 /// position and a label indicating the geometry source and quality. This lets you visually verify
 /// that the caret rect aligns with the real blinking cursor in the host app.
 @MainActor
 final class FocusDebugOverlayController {
-    static let launchArgument = "-tabby-debug-caret-overlay"
+    static let launchArgument = TabbyDebugOptions.launchArgument
 
     static var isEnabled: Bool {
-        ProcessInfo.processInfo.arguments.contains(launchArgument)
+        TabbyDebugOptions.isEnabled
     }
 
     private lazy var caretPanel: NSPanel = makePanel()
