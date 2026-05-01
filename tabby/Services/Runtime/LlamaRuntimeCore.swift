@@ -48,6 +48,13 @@ actor LlamaRuntimeCore {
         var samplingFingerprint: SamplingFingerprint
     }
 
+    private struct PromptContextRequest {
+        let promptBytes: [UInt8]
+        let promptTokens: [llama_token]
+        let samplingFingerprint: SamplingFingerprint
+        let cachedPrefixBytes: Int?
+    }
+
     /// Generation knobs that intentionally break KV reuse when changed.
     /// The prompt KV itself is mostly independent from the sampler, but the product contract for
     /// this optimization is stricter: a different sampling configuration starts a clean context.
@@ -59,6 +66,16 @@ actor LlamaRuntimeCore {
         let minP: Double
         let repetitionPenalty: Double
         let seed: UInt32?
+
+        init(options: LlamaGenerationOptions) {
+            maxPredictionTokens = options.maxPredictionTokens
+            temperature = options.temperature
+            topK = options.topK
+            topP = options.topP
+            minP = options.minP
+            repetitionPenalty = options.repetitionPenalty
+            seed = options.seed
+        }
     }
 
     /// Loads the requested model once and records the runtime characteristics needed for diagnostics.
@@ -67,8 +84,7 @@ actor LlamaRuntimeCore {
         configuration: LlamaRuntimeConfiguration
     ) throws -> PreparedLlamaRuntime {
         if let preparedRuntime,
-           preparedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL
-        {
+           preparedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL {
             return preparedRuntime
         }
 
@@ -114,13 +130,7 @@ actor LlamaRuntimeCore {
     func generate(
         prompt: String,
         cachedPrefixBytes: Int? = nil,
-        maxPredictionTokens: Int,
-        temperature: Double,
-        topK: Int,
-        topP: Double,
-        minP: Double,
-        repetitionPenalty: Double,
-        seed: UInt32? = nil
+        options: LlamaGenerationOptions
     ) throws -> String {
         guard let preparedRuntime else {
             throw LlamaRuntimeError.unavailable("The llama model is not loaded.")
@@ -135,33 +145,19 @@ actor LlamaRuntimeCore {
         }
 
         let promptTokens = try tokenize(prompt, vocab: vocab)
-        let samplingFingerprint = SamplingFingerprint(
-            maxPredictionTokens: maxPredictionTokens,
-            temperature: temperature,
-            topK: topK,
-            topP: topP,
-            minP: minP,
-            repetitionPenalty: repetitionPenalty,
-            seed: seed
+        let contextRequest = PromptContextRequest(
+            promptBytes: Array(prompt.utf8),
+            promptTokens: promptTokens,
+            samplingFingerprint: SamplingFingerprint(options: options),
+            cachedPrefixBytes: cachedPrefixBytes
         )
-        let promptBytes = Array(prompt.utf8)
         let context = try preparePromptContext(
             model: model,
             preparedRuntime: preparedRuntime,
-            promptBytes: promptBytes,
-            promptTokens: promptTokens,
-            samplingFingerprint: samplingFingerprint,
-            cachedPrefixBytes: cachedPrefixBytes
+            request: contextRequest
         )
 
-        let sampler = try makeSampler(
-            temperature: temperature,
-            topK: topK,
-            topP: topP,
-            minP: minP,
-            repetitionPenalty: repetitionPenalty,
-            seed: seed
-        )
+        let sampler = try makeSampler(options: options)
         defer { llama_sampler_free(sampler) }
 
         var generatedText = ""
@@ -177,7 +173,7 @@ actor LlamaRuntimeCore {
         }
 
         do {
-            for _ in 0 ..< maxPredictionTokens {
+            for _ in 0 ..< options.maxPredictionTokens {
                 let nextToken = llama_sampler_sample(sampler, context, -1)
                 if nextToken == llama_vocab_eos(vocab) || llama_vocab_is_eog(vocab, nextToken) {
                     break
@@ -240,58 +236,55 @@ actor LlamaRuntimeCore {
     private func preparePromptContext(
         model: OpaquePointer,
         preparedRuntime: PreparedLlamaRuntime,
-        promptBytes: [UInt8],
-        promptTokens: [llama_token],
-        samplingFingerprint: SamplingFingerprint,
-        cachedPrefixBytes: Int?
+        request: PromptContextRequest
     ) throws -> OpaquePointer {
-        guard let cachedPrefixBytes,
+        guard let cachedPrefixBytes = request.cachedPrefixBytes,
               cachedPrefixBytes > 0,
               let cache = promptCache,
-              cache.samplingFingerprint == samplingFingerprint
+              cache.samplingFingerprint == request.samplingFingerprint
         else {
             return try rebuildPromptContext(
                 model: model,
                 preparedRuntime: preparedRuntime,
-                promptBytes: promptBytes,
-                promptTokens: promptTokens,
-                samplingFingerprint: samplingFingerprint
+                promptBytes: request.promptBytes,
+                promptTokens: request.promptTokens,
+                samplingFingerprint: request.samplingFingerprint
             )
         }
 
         let confirmedCommonBytes = min(
             cachedPrefixBytes,
-            Self.commonPrefixCount(cache.promptBytes, promptBytes)
+            Self.commonPrefixCount(cache.promptBytes, request.promptBytes)
         )
         guard confirmedCommonBytes > 0 else {
             return try rebuildPromptContext(
                 model: model,
                 preparedRuntime: preparedRuntime,
-                promptBytes: promptBytes,
-                promptTokens: promptTokens,
-                samplingFingerprint: samplingFingerprint
+                promptBytes: request.promptBytes,
+                promptTokens: request.promptTokens,
+                samplingFingerprint: request.samplingFingerprint
             )
         }
 
-        let commonTokenPrefix = Self.commonPrefixCount(cache.promptTokens, promptTokens)
+        let commonTokenPrefix = Self.commonPrefixCount(cache.promptTokens, request.promptTokens)
         let reusableTokenCount = Self.reusableTokenCount(
             commonTokenPrefix: commonTokenPrefix,
-            newPromptTokenCount: promptTokens.count
+            newPromptTokenCount: request.promptTokens.count
         )
 
         guard trimCachedTokens(from: reusableTokenCount, in: cache.context) else {
             return try rebuildPromptContext(
                 model: model,
                 preparedRuntime: preparedRuntime,
-                promptBytes: promptBytes,
-                promptTokens: promptTokens,
-                samplingFingerprint: samplingFingerprint
+                promptBytes: request.promptBytes,
+                promptTokens: request.promptTokens,
+                samplingFingerprint: request.samplingFingerprint
             )
         }
 
         do {
             try decodePrompt(
-                promptTokens,
+                request.promptTokens,
                 startingAt: reusableTokenCount,
                 in: cache.context,
                 batchCapacity: preparedRuntime.batchSize
@@ -303,9 +296,9 @@ actor LlamaRuntimeCore {
 
         promptCache = PromptCache(
             context: cache.context,
-            promptBytes: promptBytes,
-            promptTokens: promptTokens,
-            samplingFingerprint: samplingFingerprint
+            promptBytes: request.promptBytes,
+            promptTokens: request.promptTokens,
+            samplingFingerprint: request.samplingFingerprint
         )
         return cache.context
     }
@@ -488,66 +481,84 @@ actor LlamaRuntimeCore {
     }
 
     /// Assembles the sampler chain that controls temperature, nucleus sampling, and repetition behavior.
-    private func makeSampler(
-        temperature: Double,
-        topK: Int,
-        topP: Double,
-        minP: Double,
-        repetitionPenalty: Double,
-        seed: UInt32?
-    ) throws -> UnsafeMutablePointer<llama_sampler> {
+    private func makeSampler(options: LlamaGenerationOptions) throws -> UnsafeMutablePointer<llama_sampler> {
         let params = llama_sampler_chain_default_params()
         guard let sampler = llama_sampler_chain_init(params) else {
             throw LlamaRuntimeError.generationFailed("Unable to initialize the llama sampler chain.")
         }
 
-        if repetitionPenalty > 1.0 {
-            guard let penaltySampler = llama_sampler_init_penalties(64, Float(repetitionPenalty), 1.0, 1.0) else {
-                throw LlamaRuntimeError.generationFailed("Unable to initialize the repetition penalty sampler.")
-            }
-            llama_sampler_chain_add(sampler, penaltySampler)
-        }
+        try addPenaltySamplerIfNeeded(to: sampler, repetitionPenalty: options.repetitionPenalty)
 
-        if temperature > 0 {
-            guard let temperatureSampler = llama_sampler_init_temp(Float(temperature)) else {
-                throw LlamaRuntimeError.generationFailed("Unable to initialize the temperature sampler.")
-            }
-            llama_sampler_chain_add(sampler, temperatureSampler)
-
-            if topK > 0 {
-                guard let topKSampler = llama_sampler_init_top_k(Int32(topK)) else {
-                    throw LlamaRuntimeError.generationFailed("Unable to initialize the top-k sampler.")
-                }
-                llama_sampler_chain_add(sampler, topKSampler)
-            }
-
-            if minP > 0 && minP < 1 {
-                guard let minPSampler = llama_sampler_init_min_p(Float(minP), 1) else {
-                    throw LlamaRuntimeError.generationFailed("Unable to initialize the min-p sampler.")
-                }
-                llama_sampler_chain_add(sampler, minPSampler)
-            }
-
-            if topP > 0 && topP < 1 {
-                guard let topPSampler = llama_sampler_init_top_p(Float(topP), 1) else {
-                    throw LlamaRuntimeError.generationFailed("Unable to initialize the top-p sampler.")
-                }
-                llama_sampler_chain_add(sampler, topPSampler)
-            }
-
-            let resolvedSeed = seed ?? UInt32.random(in: UInt32.min ... UInt32.max)
-            guard let distributionSampler = llama_sampler_init_dist(resolvedSeed) else {
-                throw LlamaRuntimeError.generationFailed("Unable to initialize the distribution sampler.")
-            }
-            llama_sampler_chain_add(sampler, distributionSampler)
+        if options.temperature > 0 {
+            try addRandomSamplingChain(to: sampler, options: options)
         } else {
-            guard let greedySampler = llama_sampler_init_greedy() else {
-                throw LlamaRuntimeError.generationFailed("Unable to initialize the greedy sampler.")
-            }
-            llama_sampler_chain_add(sampler, greedySampler)
+            try addGreedySampler(to: sampler)
         }
 
         return sampler
+    }
+
+    private func addPenaltySamplerIfNeeded(
+        to sampler: UnsafeMutablePointer<llama_sampler>,
+        repetitionPenalty: Double
+    ) throws {
+        guard repetitionPenalty > 1.0 else {
+            return
+        }
+
+        guard let penaltySampler = llama_sampler_init_penalties(
+            64,
+            Float(repetitionPenalty),
+            1.0,
+            1.0
+        ) else {
+            throw LlamaRuntimeError.generationFailed("Unable to initialize the repetition penalty sampler.")
+        }
+        llama_sampler_chain_add(sampler, penaltySampler)
+    }
+
+    private func addRandomSamplingChain(
+        to sampler: UnsafeMutablePointer<llama_sampler>,
+        options: LlamaGenerationOptions
+    ) throws {
+        guard let temperatureSampler = llama_sampler_init_temp(Float(options.temperature)) else {
+            throw LlamaRuntimeError.generationFailed("Unable to initialize the temperature sampler.")
+        }
+        llama_sampler_chain_add(sampler, temperatureSampler)
+
+        if options.topK > 0 {
+            guard let topKSampler = llama_sampler_init_top_k(Int32(options.topK)) else {
+                throw LlamaRuntimeError.generationFailed("Unable to initialize the top-k sampler.")
+            }
+            llama_sampler_chain_add(sampler, topKSampler)
+        }
+
+        if options.minP > 0 && options.minP < 1 {
+            guard let minPSampler = llama_sampler_init_min_p(Float(options.minP), 1) else {
+                throw LlamaRuntimeError.generationFailed("Unable to initialize the min-p sampler.")
+            }
+            llama_sampler_chain_add(sampler, minPSampler)
+        }
+
+        if options.topP > 0 && options.topP < 1 {
+            guard let topPSampler = llama_sampler_init_top_p(Float(options.topP), 1) else {
+                throw LlamaRuntimeError.generationFailed("Unable to initialize the top-p sampler.")
+            }
+            llama_sampler_chain_add(sampler, topPSampler)
+        }
+
+        let resolvedSeed = options.seed ?? UInt32.random(in: UInt32.min ... UInt32.max)
+        guard let distributionSampler = llama_sampler_init_dist(resolvedSeed) else {
+            throw LlamaRuntimeError.generationFailed("Unable to initialize the distribution sampler.")
+        }
+        llama_sampler_chain_add(sampler, distributionSampler)
+    }
+
+    private func addGreedySampler(to sampler: UnsafeMutablePointer<llama_sampler>) throws {
+        guard let greedySampler = llama_sampler_init_greedy() else {
+            throw LlamaRuntimeError.generationFailed("Unable to initialize the greedy sampler.")
+        }
+        llama_sampler_chain_add(sampler, greedySampler)
     }
 
     /// Removes tokens at and after `position` from the prompt sequence.
@@ -612,7 +623,7 @@ actor LlamaRuntimeCore {
             }
 
             let bytes = buffer.prefix(Int(written)).map { UInt8(bitPattern: $0) }
-            return String(decoding: bytes, as: UTF8.self)
+            return String(bytes: bytes, encoding: .utf8) ?? ""
         }
     }
 }
@@ -621,8 +632,7 @@ extension LlamaRuntimeCore {
     /// Generates a summary without reading or modifying the global KV prompt cache.
     func summarize(
         prompt: String,
-        maxPredictionTokens: Int,
-        temperature: Double
+        options: LlamaGenerationOptions
     ) throws -> String {
         guard let preparedRuntime else {
             throw LlamaRuntimeError.unavailable("The llama model is not loaded.")
@@ -651,20 +661,13 @@ extension LlamaRuntimeCore {
             batchCapacity: preparedRuntime.batchSize
         )
 
-        let sampler = try makeSampler(
-            temperature: temperature,
-            topK: 40,
-            topP: 0.95,
-            minP: 0.05,
-            repetitionPenalty: 1.1,
-            seed: nil
-        )
+        let sampler = try makeSampler(options: options)
         defer { llama_sampler_free(sampler) }
 
         var generatedText = ""
         var position = Int32(promptTokens.count)
 
-        for _ in 0 ..< maxPredictionTokens {
+        for _ in 0 ..< options.maxPredictionTokens {
             let nextToken = llama_sampler_sample(sampler, context, -1)
             if nextToken == llama_vocab_eos(vocab) || llama_vocab_is_eog(vocab, nextToken) {
                 break

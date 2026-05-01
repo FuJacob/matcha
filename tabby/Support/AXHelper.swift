@@ -14,7 +14,7 @@ enum AXHelper {
         kAXTextFieldRole as String,
         kAXTextAreaRole as String,
         "AXSearchField",
-        kAXComboBoxRole as String,
+        kAXComboBoxRole as String
     ]
 
     private static let knownReadOnlyRoles: Set<String> = [
@@ -22,7 +22,7 @@ enum AXHelper {
         kAXImageRole as String,
         kAXButtonRole as String,
         "AXLink",
-        kAXMenuItemRole as String,
+        kAXMenuItemRole as String
     ]
 
     // MARK: - Attribute Reading
@@ -77,16 +77,20 @@ enum AXHelper {
         return number.boolValue
     }
 
-    /// Reads an `AXValue`-backed range attribute such as the current selection.
-    static func rangeValue(for attribute: CFString, on element: AXUIElement) -> NSRange? {
-        guard let rawValue = copyAttributeValue(attribute, on: element),
-              CFGetTypeID(rawValue) == AXValueGetTypeID()
-        else {
+    /// Converts loosely typed Accessibility values into `AXValue` only after verifying the Core
+    /// Foundation type id. This keeps the unsafe CF boundary in one place and avoids force casts in
+    /// the higher-level helpers below.
+    private static func axValue(from value: AnyObject?) -> AXValue? {
+        guard let value, CFGetTypeID(value) == AXValueGetTypeID() else {
             return nil
         }
 
-        // Safe because we already checked the Core Foundation type id above.
-        let axValue = rawValue as! AXValue
+        return unsafeBitCast(value, to: AXValue.self)
+    }
+
+    /// Reads an `AXValue`-backed range attribute such as the current selection.
+    static func rangeValue(for attribute: CFString, on element: AXUIElement) -> NSRange? {
+        guard let axValue = axValue(from: copyAttributeValue(attribute, on: element)) else { return nil }
         guard AXValueGetType(axValue) == .cfRange else {
             return nil
         }
@@ -101,14 +105,7 @@ enum AXHelper {
 
     /// Reads an `AXValue`-backed rectangle attribute such as `AXFrame`.
     static func rectValue(for attribute: CFString, on element: AXUIElement) -> CGRect? {
-        guard let rawValue = copyAttributeValue(attribute, on: element),
-              CFGetTypeID(rawValue) == AXValueGetTypeID()
-        else {
-            return nil
-        }
-
-        // Safe because we already checked the Core Foundation type id above.
-        let axValue = rawValue as! AXValue
+        guard let axValue = axValue(from: copyAttributeValue(attribute, on: element)) else { return nil }
         guard AXValueGetType(axValue) == .cgRect else {
             return nil
         }
@@ -134,12 +131,7 @@ enum AXHelper {
 
         var value: CFTypeRef?
         let result = AXUIElementCopyParameterizedAttributeValue(element, attribute, parameter, &value)
-        guard result == .success, let value, CFGetTypeID(value) == AXValueGetTypeID() else {
-            return nil
-        }
-
-        // Safe because we already checked the Core Foundation type id above.
-        let axValue = value as! AXValue
+        guard result == .success, let axValue = axValue(from: value) else { return nil }
         guard AXValueGetType(axValue) == .cgRect else {
             return nil
         }
@@ -154,43 +146,38 @@ enum AXHelper {
 
     /// Some applications (like Chromium and WebKit browsers) do not properly support `AXBoundsForRange`
     /// using `NSRange`. Instead, they use a private, undocumented Accessibility object called `AXTextMarker`.
-    /// 
+    ///
     /// To get the caret rect from these apps, we must:
     /// 1. Ask for `AXSelectedTextMarkerRange` (which returns an opaque `AXTextMarkerRange`).
     /// 2. Pass that marker range back to the element using `AXBoundsForTextMarkerRange`.
-    /// 
+    ///
     /// This bypasses the need to translate `NSRange` manually and forces the browser to resolve
     /// the physical layout of its own internal selection object.
     static func textMarkerCaretRect(on element: AXUIElement) -> CGRect? {
         // 1. Get the opaque AXTextMarkerRange that represents the current selection/caret.
         let selectedMarkerRangeAttribute = "AXSelectedTextMarkerRange" as CFString
         var markerRangeValue: CFTypeRef?
-        
+
         var result = AXUIElementCopyAttributeValue(element, selectedMarkerRangeAttribute, &markerRangeValue)
         guard result == .success, let markerRange = markerRangeValue else {
             return nil
         }
-        
+
         // 2. Ask the element to compute the bounding box for that exact text marker range.
         let boundsForMarkerRangeAttribute = "AXBoundsForTextMarkerRange" as CFString
         var boundsValue: CFTypeRef?
-        
+
         result = AXUIElementCopyParameterizedAttributeValue(element, boundsForMarkerRangeAttribute, markerRange, &boundsValue)
-        guard result == .success, let bounds = boundsValue, CFGetTypeID(bounds) == AXValueGetTypeID() else {
-            return nil
-        }
-        
-        // Safe because we already checked the Core Foundation type id above.
-        let axBounds = bounds as! AXValue
+        guard result == .success, let axBounds = axValue(from: boundsValue) else { return nil }
         guard AXValueGetType(axBounds) == .cgRect else {
             return nil
         }
-        
+
         var rect = CGRect.zero
         guard AXValueGetValue(axBounds, .cgRect, &rect) else {
             return nil
         }
-        
+
         return rect
     }
 

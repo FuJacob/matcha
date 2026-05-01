@@ -108,7 +108,7 @@ enum SuggestionRequestFactory {
     private static func activeCustomAIInstructions(
         settings: SuggestionSettingsSnapshot
     ) -> String? {
-        return settings.customAIInstructions
+        settings.customAIInstructions
     }
 
     private static func activeMaxPredictionTokens(

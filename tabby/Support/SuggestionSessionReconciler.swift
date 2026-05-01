@@ -54,14 +54,6 @@ enum SuggestionSessionReconciler {
     ) -> SuggestionSessionReconciliation {
         let isAwaitingInsertedTextSync = pendingInsertionConsumedCount == session.consumedCharacterCount
 
-        func tolerateTransientPostInsertionLag() -> SuggestionSessionReconciliation {
-            .valid(
-                session: session,
-                advancement: nil,
-                nextPendingInsertionConsumedCount: pendingInsertionConsumedCount
-            )
-        }
-
         // Process-level identity check instead of AX element identity. Chrome recycles AX
         // node tokens between polls, making CFHash-based elementIdentifier unstable. The text
         // guards below catch intra-process field switches via content divergence.
@@ -73,53 +65,48 @@ enum SuggestionSessionReconciler {
             return .invalid("Overlay hidden because text is selected.")
         }
 
-        guard liveContext.trailingText == session.baseContext.trailingText else {
-            // Chromium editors can briefly publish a selection/caret update before their
-            // surrounding text snapshot catches up. Right after Tab insertion that makes the
-            // trailing-text slice look changed even though the active suggestion tail is still
-            // valid. We allow that transient mismatch only while the post-insertion sentinel is
-            // active and the prefix before the caret still anchors to the same field content.
-            if isAwaitingInsertedTextSync,
-               liveContext.precedingText.hasPrefix(session.baseContext.precedingText)
-            {
-                return tolerateTransientPostInsertionLag()
-            }
-            return .invalid("Overlay hidden because text after the caret changed.")
+        if let trailingTextReconciliation = reconcileTrailingText(
+            session: session,
+            liveContext: liveContext,
+            pendingInsertionConsumedCount: pendingInsertionConsumedCount,
+            isAwaitingInsertedTextSync: isAwaitingInsertedTextSync
+        ) {
+            return trailingTextReconciliation
         }
 
-        guard liveContext.precedingText.hasPrefix(session.baseContext.precedingText) else {
-            // The inverse Chromium race can also happen: the trailing text is already stable, but
-            // the prefix before the caret still reflects the pre-insertion snapshot. In that case
-            // we again prefer to wait for AX to settle instead of eagerly killing the session.
-            if isAwaitingInsertedTextSync {
-                return tolerateTransientPostInsertionLag()
-            }
-            return .invalid("Overlay hidden because text before the caret no longer matches the suggestion anchor.")
+        if let prefixReconciliation = reconcilePrefixAnchor(
+            session: session,
+            liveContext: liveContext,
+            pendingInsertionConsumedCount: pendingInsertionConsumedCount,
+            isAwaitingInsertedTextSync: isAwaitingInsertedTextSync
+        ) {
+            return prefixReconciliation
         }
 
         var nextPendingInsertionConsumedCount = pendingInsertionConsumedCount
         let consumedSuffix = String(liveContext.precedingText.dropFirst(session.baseContext.precedingText.count))
-        guard session.fullText.hasPrefix(consumedSuffix) else {
-            // If we just inserted via Tab, AX may still show stale text. Trust the sentinel
-            // for one reconciliation cycle instead of invalidating the whole session.
-            if isAwaitingInsertedTextSync {
-                return tolerateTransientPostInsertionLag()
-            }
-
-            return .invalid("Overlay hidden because typed text diverged from the active suggestion.")
+        if let consumedTextReconciliation = reconcileConsumedSuggestionText(
+            session: session,
+            consumedSuffix: consumedSuffix,
+            pendingInsertionConsumedCount: pendingInsertionConsumedCount,
+            isAwaitingInsertedTextSync: isAwaitingInsertedTextSync
+        ) {
+            return consumedTextReconciliation
         }
 
         // AX caught up (or never lagged) — clear the sentinel.
         if nextPendingInsertionConsumedCount != nil,
-           consumedSuffix.count >= session.consumedCharacterCount
-        {
+           consumedSuffix.count >= session.consumedCharacterCount {
             nextPendingInsertionConsumedCount = nil
         }
 
         guard consumedSuffix.count >= session.consumedCharacterCount else {
             // Same AX lag protection: if we just Tab-inserted, the preceding text hasn't updated yet.
             if isAwaitingInsertedTextSync {
-                return tolerateTransientPostInsertionLag()
+                return tolerateTransientPostInsertionLag(
+                    session: session,
+                    pendingInsertionConsumedCount: pendingInsertionConsumedCount
+                )
             }
 
             return .invalid("Overlay hidden because the active suggestion was partially undone.")
@@ -150,6 +137,86 @@ enum SuggestionSessionReconciler {
             advancement: advancement,
             nextPendingInsertionConsumedCount: nextPendingInsertionConsumedCount
         )
+    }
+
+    private static func tolerateTransientPostInsertionLag(
+        session: ActiveSuggestionSession,
+        pendingInsertionConsumedCount: Int?
+    ) -> SuggestionSessionReconciliation {
+        .valid(
+            session: session,
+            advancement: nil,
+            nextPendingInsertionConsumedCount: pendingInsertionConsumedCount
+        )
+    }
+
+    private static func reconcileTrailingText(
+        session: ActiveSuggestionSession,
+        liveContext: FocusedInputContext,
+        pendingInsertionConsumedCount: Int?,
+        isAwaitingInsertedTextSync: Bool
+    ) -> SuggestionSessionReconciliation? {
+        guard liveContext.trailingText != session.baseContext.trailingText else {
+            return nil
+        }
+
+        // Chromium editors can briefly publish a selection/caret update before their surrounding
+        // text snapshot catches up. Right after Tab insertion that makes the trailing-text slice
+        // look changed even though the active suggestion tail is still valid.
+        if isAwaitingInsertedTextSync,
+           liveContext.precedingText.hasPrefix(session.baseContext.precedingText) {
+            return tolerateTransientPostInsertionLag(
+                session: session,
+                pendingInsertionConsumedCount: pendingInsertionConsumedCount
+            )
+        }
+
+        return .invalid("Overlay hidden because text after the caret changed.")
+    }
+
+    private static func reconcilePrefixAnchor(
+        session: ActiveSuggestionSession,
+        liveContext: FocusedInputContext,
+        pendingInsertionConsumedCount: Int?,
+        isAwaitingInsertedTextSync: Bool
+    ) -> SuggestionSessionReconciliation? {
+        guard !liveContext.precedingText.hasPrefix(session.baseContext.precedingText) else {
+            return nil
+        }
+
+        // The inverse Chromium race can also happen: the trailing text is already stable, but the
+        // prefix before the caret still reflects the pre-insertion snapshot. In that case we wait
+        // for AX to settle instead of eagerly killing the session.
+        if isAwaitingInsertedTextSync {
+            return tolerateTransientPostInsertionLag(
+                session: session,
+                pendingInsertionConsumedCount: pendingInsertionConsumedCount
+            )
+        }
+
+        return .invalid("Overlay hidden because text before the caret no longer matches the suggestion anchor.")
+    }
+
+    private static func reconcileConsumedSuggestionText(
+        session: ActiveSuggestionSession,
+        consumedSuffix: String,
+        pendingInsertionConsumedCount: Int?,
+        isAwaitingInsertedTextSync: Bool
+    ) -> SuggestionSessionReconciliation? {
+        guard !session.fullText.hasPrefix(consumedSuffix) else {
+            return nil
+        }
+
+        // If we just inserted via Tab, AX may still show stale text. Trust the sentinel for one
+        // reconciliation cycle instead of invalidating the whole session.
+        if isAwaitingInsertedTextSync {
+            return tolerateTransientPostInsertionLag(
+                session: session,
+                pendingInsertionConsumedCount: pendingInsertionConsumedCount
+            )
+        }
+
+        return .invalid("Overlay hidden because typed text diverged from the active suggestion.")
     }
 
     /// Accepts optional leading whitespace plus the next visible token.

@@ -28,13 +28,15 @@ final class LlamaSuggestionEngine {
             let rawSuggestion = try await runtimeManager.generate(
                 prompt: request.prompt,
                 cachedPrefixBytes: cachedPrefixBytes,
-                maxPredictionTokens: request.maxPredictionTokens,
-                temperature: request.temperature,
-                topK: request.topK,
-                topP: request.topP,
-                minP: request.minP,
-                repetitionPenalty: request.repetitionPenalty,
-                seed: request.randomSeed
+                options: LlamaGenerationOptions(
+                    maxPredictionTokens: request.maxPredictionTokens,
+                    temperature: request.temperature,
+                    topK: request.topK,
+                    topP: request.topP,
+                    minP: request.minP,
+                    repetitionPenalty: request.repetitionPenalty,
+                    seed: request.randomSeed
+                )
             )
             try Task.checkCancellation()
 

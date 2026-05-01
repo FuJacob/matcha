@@ -147,8 +147,7 @@ final class RuntimeBootstrapModel: ObservableObject {
         }
 
         if let persistedFilename,
-           availableModels.contains(where: { $0.filename == persistedFilename })
-        {
+           availableModels.contains(where: { $0.filename == persistedFilename }) {
             return persistedFilename
         }
 
@@ -186,14 +185,12 @@ final class RuntimeBootstrapModel: ObservableObject {
         }
 
         if let currentSelection,
-           availableModels.contains(where: { $0.filename == currentSelection })
-        {
+           availableModels.contains(where: { $0.filename == currentSelection }) {
             return currentSelection
         }
 
         if let persistedSelection,
-           availableModels.contains(where: { $0.filename == persistedSelection })
-        {
+           availableModels.contains(where: { $0.filename == persistedSelection }) {
             return persistedSelection
         }
 

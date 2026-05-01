@@ -379,7 +379,9 @@ enum OverlayState: Equatable {
         case let .hidden(reason):
             return reason
         case let .visible(text, caretRect, caretQuality):
-            return "Showing \(text.count) characters near (\(Int(caretRect.minX)), \(Int(caretRect.minY))) using \(caretQuality.label) caret geometry."
+            return "Showing \(text.count) characters near " +
+                "(\(Int(caretRect.minX)), \(Int(caretRect.minY))) " +
+                "using \(caretQuality.label) caret geometry."
         }
     }
 

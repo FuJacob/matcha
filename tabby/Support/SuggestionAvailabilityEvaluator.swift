@@ -19,8 +19,7 @@ enum SuggestionAvailabilityEvaluator {
         }
 
         if let bundleIdentifier = focusSnapshot.bundleIdentifier,
-           disabledAppBundleIdentifiers.contains(bundleIdentifier)
-        {
+           disabledAppBundleIdentifiers.contains(bundleIdentifier) {
             return "Tabby is disabled in \(focusSnapshot.applicationName)."
         }
 

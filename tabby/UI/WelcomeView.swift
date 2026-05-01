@@ -310,52 +310,55 @@ private struct EngineCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: {
-            if isAvailable {
-                action()
-            }
-        }) {
-            HStack(spacing: 14) {
-                EngineArtworkThumbnail(
-                    artworkName: artworkName,
-                    isSelected: isSelected,
-                    isAvailable: isAvailable
-                )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(isAvailable ? .primary : .tertiary)
-
-                    Text(subtitle)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+        Button(
+            action: {
+                if isAvailable {
+                    action()
                 }
-
-                Spacer(minLength: 0)
-
-                if isSelected && isAvailable {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.accentColor)
-                }
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.regularMaterial)
-                    .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(
-                        isSelected && isAvailable
-                            ? Color.accentColor.opacity(0.4) : Color.white.opacity(0.08),
-                        lineWidth: isSelected && isAvailable ? 1.5 : 0.5
+            },
+            label: {
+                HStack(spacing: 14) {
+                    EngineArtworkThumbnail(
+                        artworkName: artworkName,
+                        isSelected: isSelected,
+                        isAvailable: isAvailable
                     )
-            )
-        }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(isAvailable ? .primary : .tertiary)
+
+                        Text(subtitle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if isSelected && isAvailable {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.regularMaterial)
+                        .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(
+                            isSelected && isAvailable
+                                ? Color.accentColor.opacity(0.4) : Color.white.opacity(0.08),
+                            lineWidth: isSelected && isAvailable ? 1.5 : 0.5
+                        )
+                )
+            }
+        )
         .buttonStyle(.plain)
         .disabled(!isAvailable)
     }
@@ -423,8 +426,8 @@ struct WelcomeButton: View {
 struct WelcomeNavigation: View {
     var canGoBack: Bool = false
     var canContinue: Bool = true
-    var disabledHint: String? = nil
-    var onBack: (() -> Void)? = nil
+    var disabledHint: String?
+    var onBack: (() -> Void)?
     let onContinue: () -> Void
 
     var body: some View {

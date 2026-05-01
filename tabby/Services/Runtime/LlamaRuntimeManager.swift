@@ -87,13 +87,7 @@ final class LlamaRuntimeManager: ObservableObject {
     func generate(
         prompt: String,
         cachedPrefixBytes: Int? = nil,
-        maxPredictionTokens: Int,
-        temperature: Double,
-        topK: Int,
-        topP: Double,
-        minP: Double,
-        repetitionPenalty: Double,
-        seed: UInt32? = nil
+        options: LlamaGenerationOptions
     ) async throws -> String {
         _ = try await preparedRuntime()
 
@@ -101,13 +95,7 @@ final class LlamaRuntimeManager: ObservableObject {
             return try await core.generate(
                 prompt: prompt,
                 cachedPrefixBytes: cachedPrefixBytes,
-                maxPredictionTokens: maxPredictionTokens,
-                temperature: temperature,
-                topK: topK,
-                topP: topP,
-                minP: minP,
-                repetitionPenalty: repetitionPenalty,
-                seed: seed
+                options: options
             )
         } catch is CancellationError {
             throw LlamaRuntimeError.cancelled
@@ -136,8 +124,10 @@ final class LlamaRuntimeManager: ObservableObject {
         do {
             return try await core.summarize(
                 prompt: prompt,
-                maxPredictionTokens: maxPredictionTokens,
-                temperature: temperature
+                options: .summary(
+                    maxPredictionTokens: maxPredictionTokens,
+                    temperature: temperature
+                )
             )
         } catch is CancellationError {
             throw LlamaRuntimeError.cancelled
@@ -176,8 +166,7 @@ final class LlamaRuntimeManager: ObservableObject {
         let requestedModelFilename = resolvedRuntime.modelFileURL.lastPathComponent
 
         if let cachedRuntime,
-            cachedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL
-        {
+            cachedRuntime.resolvedRuntime.modelFileURL == resolvedRuntime.modelFileURL {
             return cachedRuntime
         }
 

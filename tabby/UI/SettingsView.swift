@@ -500,8 +500,8 @@ struct SettingsView: View {
     }
 
     private var customAIInstructionsDescription: String {
-        return
-            "These instructions are active for autocomplete. Use them to tell Tabby about your tone, language, audience, or formatting preferences."
+        "These instructions are active for autocomplete. Use them to tell Tabby about your " +
+            "tone, language, audience, or formatting preferences."
     }
 
     private var localModelsDescription: String {

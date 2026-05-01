@@ -33,7 +33,8 @@ enum ModelFileValidator {
             case let .checksumMismatch(expected, actual):
                 let expectedShort = String(expected.lowercased().prefix(16))
                 let actualShort = String(actual.lowercased().prefix(16))
-                return "Downloaded file's checksum (\(actualShort)…) doesn't match the expected (\(expectedShort)…). The file may be corrupt."
+                return "Downloaded file's checksum (\(actualShort)…) doesn't match the " +
+                    "expected (\(expectedShort)…). The file may be corrupt."
             case let .fileUnreadable(url):
                 return "Couldn't read \(url.lastPathComponent) for validation."
             }
@@ -95,7 +96,8 @@ enum ModelFileValidator {
         defer { try? handle.close() }
 
         var hasher = SHA256()
-        let chunkSize = 1024 * 1024  // 1 MB — small enough to stay out of large allocations, large enough to keep syscall overhead negligible.
+        // 1 MB keeps memory bounded while avoiding excessive read syscalls.
+        let chunkSize = 1024 * 1024
         while true {
             let chunk: Data
             do {

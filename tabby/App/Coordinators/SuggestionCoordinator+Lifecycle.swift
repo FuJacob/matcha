@@ -74,8 +74,7 @@ extension SuggestionCoordinator {
             inputMonitoringGranted: permissionManager.inputMonitoringGranted,
             screenRecordingGranted: permissionManager.screenRecordingGranted,
             focusSnapshot: focusModel.snapshot
-        )
-        {
+        ) {
             schedulePrediction()
         }
     }

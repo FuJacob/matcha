@@ -81,7 +81,7 @@ final class LaunchAtLoginService: ObservableObject {
         refresh()
     }
 
-    private static func     map(_ status: SMAppService.Status) -> LaunchAtLoginState {
+    private static func map(_ status: SMAppService.Status) -> LaunchAtLoginState {
         switch status {
         case .enabled:
             return .enabled

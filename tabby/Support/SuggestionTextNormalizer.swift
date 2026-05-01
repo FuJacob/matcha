@@ -46,8 +46,7 @@ enum SuggestionTextNormalizer {
         // suggestion as unusable. Showing only the remainder often produces confusing mid-word
         // ghosts, so the coordinator should regenerate instead.
         if !request.context.trailingText.isEmpty,
-            normalized.hasPrefix(request.context.trailingText)
-        {
+            normalized.hasPrefix(request.context.trailingText) {
             return ""
         }
 

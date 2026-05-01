@@ -27,13 +27,13 @@ final class FocusTracker {
         static let application: [CFString] = [
             kAXFocusedUIElementChangedNotification as CFString,
             kAXFocusedWindowChangedNotification as CFString,
-            kAXApplicationDeactivatedNotification as CFString,
+            kAXApplicationDeactivatedNotification as CFString
         ]
 
         static let focusedElement: [CFString] = [
             kAXValueChangedNotification as CFString,
             kAXSelectedTextChangedNotification as CFString,
-            kAXUIElementDestroyedNotification as CFString,
+            kAXUIElementDestroyedNotification as CFString
         ]
     }
 
@@ -142,7 +142,7 @@ final class FocusTracker {
         let focusChangingNotifications: Set<String> = [
             kAXFocusedUIElementChangedNotification as String,
             kAXFocusedWindowChangedNotification as String,
-            kAXApplicationDeactivatedNotification as String,
+            kAXApplicationDeactivatedNotification as String
         ]
         if focusChangingNotifications.contains(notificationName) {
             focusChangeSequence += 1
@@ -273,8 +273,7 @@ final class FocusTracker {
         }
 
         if let observedFocusedElement,
-           AXHelper.elementIdentity(for: observedFocusedElement) == AXHelper.elementIdentity(for: focusedElement)
-        {
+           AXHelper.elementIdentity(for: observedFocusedElement) == AXHelper.elementIdentity(for: focusedElement) {
             return
         }
 

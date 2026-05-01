@@ -139,7 +139,8 @@ final class InputMonitor {
         let characters = event.unicodeString
 
         // Key code 48 is the hardware Tab key on macOS keyboard events.
-        if keyCode == 48, flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty {
+        if keyCode == 48,
+           flags.isDisjoint(with: [.maskCommand, .maskControl, .maskAlternate, .maskShift]) {
             return CapturedInputEvent(kind: .tab, keyCode: keyCode, characters: characters, flags: flags)
         }
 

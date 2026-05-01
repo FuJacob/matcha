@@ -136,7 +136,7 @@ enum RuntimeModelCatalog {
             approximateSizeInGigabytes: 3.5,
             expectedSizeBytes: 4_539_054_208,
             sha256: "43b489bb77a81bda85180e7c490d40ad7f1d5c2ce654c9b05e15e104bd3c777e"
-        ),
+        )
     ]
 }
 
@@ -155,12 +155,38 @@ struct LlamaRuntimeConfiguration: Equatable, Sendable {
         preferredModelNames: [
             "gemma-3-1b-it-Q4_K_M.gguf",
             "Qwen3-0.6B-Q4_K_M.gguf",
-            "gemma-3n-E4B-it-Q4_K_M.gguf",
+            "gemma-3n-E4B-it-Q4_K_M.gguf"
         ],
         contextWindowTokens: 2048,
         batchSize: 512,
         gpuLayerCount: -1
     )
+}
+
+/// Sampling and length controls for one llama generation request.
+///
+/// These values travel together from the suggestion layer to the runtime. Modeling them as one
+/// value object keeps runtime APIs small and makes cache invalidation easier to reason about:
+/// changing any option means the request belongs to a different sampling configuration.
+struct LlamaGenerationOptions: Equatable, Sendable {
+    let maxPredictionTokens: Int
+    let temperature: Double
+    let topK: Int
+    let topP: Double
+    let minP: Double
+    let repetitionPenalty: Double
+    var seed: UInt32?
+
+    static func summary(maxPredictionTokens: Int, temperature: Double) -> LlamaGenerationOptions {
+        LlamaGenerationOptions(
+            maxPredictionTokens: maxPredictionTokens,
+            temperature: temperature,
+            topK: 40,
+            topP: 0.95,
+            minP: 0.05,
+            repetitionPenalty: 1.1
+        )
+    }
 }
 
 /// The concrete runtime assets selected during bootstrap after checking available model files.

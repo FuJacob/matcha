@@ -46,15 +46,17 @@ final class VisualContextCoordinator {
     func startSessionIfNeeded(for snapshotContext: FocusedInputSnapshot) {
         if let activeAugmentationSession,
             activeAugmentationSession.elementIdentifier == snapshotContext.elementIdentifier,
-            activeAugmentationSession.focusChangeSequence == snapshotContext.focusChangeSequence
-        {
+            activeAugmentationSession.focusChangeSequence == snapshotContext.focusChangeSequence {
             if case .unavailable(let reason) = activeAugmentationSession.status,
                 reason.localizedCaseInsensitiveContains("Screen Recording"),
-                screenRecordingPermissionProvider()
-            {
+                screenRecordingPermissionProvider() {
                 cancel(resetState: true)
             } else {
-                log("session-dedup element=\(snapshotContext.elementIdentifier) seq=\(snapshotContext.focusChangeSequence) status=\(activeAugmentationSession.status)")
+                log(
+                    "session-dedup element=\(snapshotContext.elementIdentifier) " +
+                        "seq=\(snapshotContext.focusChangeSequence) " +
+                        "status=\(activeAugmentationSession.status)"
+                )
                 return
             }
         }
@@ -79,7 +81,10 @@ final class VisualContextCoordinator {
         status = initialStatus
         publishState()
 
-        log("session-start element=\(snapshotContext.elementIdentifier) seq=\(snapshotContext.focusChangeSequence) permission=\(hasPermission)")
+        log(
+            "session-start element=\(snapshotContext.elementIdentifier) " +
+                "seq=\(snapshotContext.focusChangeSequence) permission=\(hasPermission)"
+        )
 
         guard hasPermission else {
             log("session-blocked missing-screen-recording-permission")
