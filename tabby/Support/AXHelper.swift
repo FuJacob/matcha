@@ -77,6 +77,29 @@ enum AXHelper {
         return number.boolValue
     }
 
+    /// Browser containers often expose `AXURL` as either a Foundation `URL` or a string.
+    /// Normalizing both representations here keeps Core Foundation bridging quirks out of the
+    /// higher-level focus resolver.
+    static func urlValue(for attribute: CFString, on element: AXUIElement) -> URL? {
+        guard let rawValue = copyAttributeValue(attribute, on: element) else {
+            return nil
+        }
+
+        if let url = rawValue as? URL {
+            return url
+        }
+
+        if let string = rawValue as? String {
+            return URL(string: string)
+        }
+
+        if let attributedString = rawValue as? NSAttributedString {
+            return URL(string: attributedString.string)
+        }
+
+        return nil
+    }
+
     /// Converts loosely typed Accessibility values into `AXValue` only after verifying the Core
     /// Foundation type id. This keeps the unsafe CF boundary in one place and avoids force casts in
     /// the higher-level helpers below.

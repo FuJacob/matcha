@@ -10,6 +10,7 @@ enum SuggestionAvailabilityEvaluator {
     static func disabledReason(
         globallyEnabled: Bool = true,
         disabledAppBundleIdentifiers: Set<String> = [],
+        domainOverrideRules: [DomainOverrideRule] = [],
         inputMonitoringGranted: Bool,
         screenRecordingGranted: Bool,
         focusSnapshot: FocusSnapshot
@@ -21,6 +22,18 @@ enum SuggestionAvailabilityEvaluator {
         if let bundleIdentifier = focusSnapshot.bundleIdentifier,
            disabledAppBundleIdentifiers.contains(bundleIdentifier) {
             return "Tabby is disabled in \(focusSnapshot.applicationName)."
+        }
+
+        if let browserDomain = focusSnapshot.externalBrowserDomainIdentity(
+            ignoredBundleIdentifier: nil
+        ),
+           let matchingRule = matchingDomainRule(
+               for: browserDomain,
+               in: domainOverrideRules
+           ),
+           matchingRule.state == .disabled
+        {
+            return "Tabby is disabled on \(matchingRule.displayDomain)."
         }
 
         guard inputMonitoringGranted else {
@@ -43,6 +56,7 @@ enum SuggestionAvailabilityEvaluator {
     static func shouldSchedulePrediction(
         globallyEnabled: Bool = true,
         disabledAppBundleIdentifiers: Set<String> = [],
+        domainOverrideRules: [DomainOverrideRule] = [],
         inputMonitoringGranted: Bool,
         screenRecordingGranted: Bool,
         focusSnapshot: FocusSnapshot
@@ -50,6 +64,7 @@ enum SuggestionAvailabilityEvaluator {
         disabledReason(
             globallyEnabled: globallyEnabled,
             disabledAppBundleIdentifiers: disabledAppBundleIdentifiers,
+            domainOverrideRules: domainOverrideRules,
             inputMonitoringGranted: inputMonitoringGranted,
             screenRecordingGranted: screenRecordingGranted,
             focusSnapshot: focusSnapshot
@@ -68,5 +83,20 @@ enum SuggestionAvailabilityEvaluator {
         }
 
         return SuggestionRequestFactory.shouldGenerateSuggestion(for: context.precedingText)
+    }
+
+    private static func matchingDomainRule(
+        for domain: FocusedBrowserDomainIdentity,
+        in rules: [DomainOverrideRule]
+    ) -> DomainOverrideRule? {
+        if let exactHostRule = rules.first(where: {
+            $0.matchScope == .exactHost && $0.matches(domain)
+        }) {
+            return exactHostRule
+        }
+
+        return rules.first(where: {
+            $0.matchScope == .registrableDomain && $0.matches(domain)
+        })
     }
 }

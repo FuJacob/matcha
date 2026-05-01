@@ -74,6 +74,10 @@ struct MenuBarView: View {
                     .controlSize(.small)
             }
 
+            if let browserDomain = focusModel.latestExternalBrowserDomain {
+                domainOverrideRow(for: browserDomain)
+            }
+
             MenuBarPickerRow(title: "Indicator") {
                 Picker("Indicator", selection: selectedIndicatorModeBinding) {
                     ForEach(ActivationIndicatorMode.allCases) { mode in
@@ -112,6 +116,26 @@ struct MenuBarView: View {
             }
         }
         .padding(.bottom, 12)
+    }
+
+    /// Domain overrides are quick actions rather than toggles because the current app-level rule
+    /// can temporarily suppress a saved domain choice. A button lets us express "save this intent"
+    /// without pretending the domain rule is the only effective switch in play.
+    @ViewBuilder
+    private func domainOverrideRow(for domain: FocusedBrowserDomainIdentity) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button(domainOverrideActionTitle(for: domain)) {
+                toggleDomainOverride(for: domain)
+            }
+            .buttonStyle(.borderless)
+            .font(.subheadline)
+
+            if shouldExplainAppLevelOverride(for: domain) {
+                Text("\(domain.applicationName) is still disabled, so this saved domain rule will apply after you re-enable the app.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// Model selector with folder shortcut — only visible when local llama engine is active.
@@ -280,6 +304,39 @@ struct MenuBarView: View {
     private var allPermissionsGranted: Bool {
         permissionManager.accessibilityGranted
             && permissionManager.inputMonitoringGranted
+    }
+
+    private func domainOverrideActionTitle(for domain: FocusedBrowserDomainIdentity) -> String {
+        switch suggestionSettings.domainOverrideRule(for: domain)?.state {
+        case .enabled:
+            return "Disable on \(domain.displayDomain)"
+        case .disabled:
+            return "Enable on \(domain.displayDomain)"
+        case nil:
+            if suggestionSettings.isApplicationDisabled(bundleIdentifier: domain.bundleIdentifier) {
+                return "Enable on \(domain.displayDomain)"
+            }
+
+            return "Disable on \(domain.displayDomain)"
+        }
+    }
+
+    private func toggleDomainOverride(for domain: FocusedBrowserDomainIdentity) {
+        let nextState: DomainOverrideState
+        if let existingRule = suggestionSettings.domainOverrideRule(for: domain) {
+            nextState = existingRule.state == .disabled ? .enabled : .disabled
+        } else if suggestionSettings.isApplicationDisabled(bundleIdentifier: domain.bundleIdentifier) {
+            nextState = .enabled
+        } else {
+            nextState = .disabled
+        }
+
+        suggestionSettings.setDomainOverride(for: domain, state: nextState)
+    }
+
+    private func shouldExplainAppLevelOverride(for domain: FocusedBrowserDomainIdentity) -> Bool {
+        suggestionSettings.isApplicationDisabled(bundleIdentifier: domain.bundleIdentifier)
+            && suggestionSettings.domainOverrideRule(for: domain) != nil
     }
 
     private func refreshAppleIntelligenceAvailabilityIfNeeded() {

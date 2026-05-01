@@ -15,6 +15,7 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
     private func makeSnapshot(
         applicationName: String = "TestApp",
         bundleIdentifier: String? = "app.test",
+        browserDomain: BrowserDomainContext? = nil,
         capability: FocusCapability
     ) -> FocusSnapshot {
         FocusSnapshot(
@@ -22,7 +23,8 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
             bundleIdentifier: bundleIdentifier,
             capability: capability,
             context: nil,
-            inspection: nil
+            inspection: nil,
+            browserDomain: browserDomain
         )
     }
 
@@ -144,6 +146,63 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
         XCTAssertEqual(reason, "Tabby is disabled in Safari.")
     }
 
+    func test_disabledReason_whenDomainDisabled_returnsDomainSpecificCopy() {
+        let reason = SuggestionAvailabilityEvaluator.disabledReason(
+            globallyEnabled: true,
+            domainOverrideRules: [
+                DomainOverrideRule(
+                    host: "docs.github.com",
+                    registrableDomain: "github.com",
+                    state: .disabled,
+                    matchScope: .registrableDomain
+                )
+            ],
+            inputMonitoringGranted: true,
+            screenRecordingGranted: true,
+            focusSnapshot: makeSnapshot(
+                applicationName: "Google Chrome",
+                bundleIdentifier: "com.google.Chrome",
+                browserDomain: BrowserDomainContext(
+                    pageURL: URL(string: "https://docs.github.com/en")!,
+                    host: "docs.github.com",
+                    registrableDomain: "github.com"
+                ),
+                capability: .supported
+            )
+        )
+
+        XCTAssertEqual(reason, "Tabby is disabled on github.com.")
+    }
+
+    func test_disabledReason_appDisabledWinsOverEnabledDomainOverride() {
+        let reason = SuggestionAvailabilityEvaluator.disabledReason(
+            globallyEnabled: true,
+            disabledAppBundleIdentifiers: ["com.google.Chrome"],
+            domainOverrideRules: [
+                DomainOverrideRule(
+                    host: "docs.github.com",
+                    registrableDomain: "github.com",
+                    state: .enabled,
+                    matchScope: .exactHost
+                )
+            ],
+            inputMonitoringGranted: true,
+            screenRecordingGranted: true,
+            focusSnapshot: makeSnapshot(
+                applicationName: "Google Chrome",
+                bundleIdentifier: "com.google.Chrome",
+                browserDomain: BrowserDomainContext(
+                    pageURL: URL(string: "https://docs.github.com/en")!,
+                    host: "docs.github.com",
+                    registrableDomain: "github.com"
+                ),
+                capability: .supported
+            )
+        )
+
+        XCTAssertEqual(reason, "Tabby is disabled in Google Chrome.")
+    }
+
     // MARK: - disabledReason: capability passthrough
 
     /// The .blocked and .unsupported cases both surface their own reason
@@ -220,6 +279,68 @@ final class SuggestionAvailabilityEvaluatorTests: XCTestCase {
             inputMonitoringGranted: true,
             screenRecordingGranted: true,
             focusSnapshot: makeSnapshot(capability: .supported)
+        )
+
+        XCTAssertFalse(ok)
+    }
+
+    func test_shouldSchedulePrediction_falseWhenDomainDisabled() {
+        let ok = SuggestionAvailabilityEvaluator.shouldSchedulePrediction(
+            globallyEnabled: true,
+            domainOverrideRules: [
+                DomainOverrideRule(
+                    host: "mail.google.com",
+                    registrableDomain: "google.com",
+                    state: .disabled,
+                    matchScope: .exactHost
+                )
+            ],
+            inputMonitoringGranted: true,
+            screenRecordingGranted: true,
+            focusSnapshot: makeSnapshot(
+                applicationName: "Safari",
+                bundleIdentifier: "com.apple.Safari",
+                browserDomain: BrowserDomainContext(
+                    pageURL: URL(string: "https://mail.google.com")!,
+                    host: "mail.google.com",
+                    registrableDomain: "google.com"
+                ),
+                capability: .supported
+            )
+        )
+
+        XCTAssertFalse(ok)
+    }
+
+    func test_shouldSchedulePrediction_exactHostRuleWinsOverRegistrableDomainRule() {
+        let ok = SuggestionAvailabilityEvaluator.shouldSchedulePrediction(
+            globallyEnabled: true,
+            domainOverrideRules: [
+                DomainOverrideRule(
+                    host: "google.com",
+                    registrableDomain: "google.com",
+                    state: .enabled,
+                    matchScope: .registrableDomain
+                ),
+                DomainOverrideRule(
+                    host: "mail.google.com",
+                    registrableDomain: "google.com",
+                    state: .disabled,
+                    matchScope: .exactHost
+                )
+            ],
+            inputMonitoringGranted: true,
+            screenRecordingGranted: true,
+            focusSnapshot: makeSnapshot(
+                applicationName: "Safari",
+                bundleIdentifier: "com.apple.Safari",
+                browserDomain: BrowserDomainContext(
+                    pageURL: URL(string: "https://mail.google.com")!,
+                    host: "mail.google.com",
+                    registrableDomain: "google.com"
+                ),
+                capability: .supported
+            )
         )
 
         XCTAssertFalse(ok)
@@ -337,6 +458,55 @@ final class FocusSnapshotExternalApplicationIdentityTests: XCTestCase {
 
         XCTAssertNil(
             snapshot.externalApplicationIdentity(ignoredBundleIdentifier: "com.jacobfu.tabby")
+        )
+    }
+}
+
+/// Browser-domain identity is cached separately from app identity because menu-bar quick actions
+/// need to preserve the last real browser tab even after Tabby temporarily becomes frontmost.
+final class FocusSnapshotExternalBrowserDomainIdentityTests: XCTestCase {
+    func test_externalBrowserDomainIdentity_returnsNonTabbyBrowserDomain() {
+        let snapshot = FocusSnapshot(
+            applicationName: "Google Chrome",
+            bundleIdentifier: "com.google.Chrome",
+            capability: .supported,
+            context: nil,
+            inspection: nil,
+            browserDomain: BrowserDomainContext(
+                pageURL: URL(string: "https://docs.github.com/en")!,
+                host: "docs.github.com",
+                registrableDomain: "github.com"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.externalBrowserDomainIdentity(ignoredBundleIdentifier: "com.jacobfu.tabby"),
+            FocusedBrowserDomainIdentity(
+                applicationName: "Google Chrome",
+                bundleIdentifier: "com.google.Chrome",
+                pageURL: URL(string: "https://docs.github.com/en")!,
+                host: "docs.github.com",
+                registrableDomain: "github.com"
+            )
+        )
+    }
+
+    func test_externalBrowserDomainIdentity_ignoresTabbyApplication() {
+        let snapshot = FocusSnapshot(
+            applicationName: "Tabby",
+            bundleIdentifier: "com.jacobfu.tabby",
+            capability: .blocked("Tabby is focused."),
+            context: nil,
+            inspection: nil,
+            browserDomain: BrowserDomainContext(
+                pageURL: URL(string: "https://docs.github.com/en")!,
+                host: "docs.github.com",
+                registrableDomain: "github.com"
+            )
+        )
+
+        XCTAssertNil(
+            snapshot.externalBrowserDomainIdentity(ignoredBundleIdentifier: "com.jacobfu.tabby")
         )
     }
 }
@@ -487,6 +657,148 @@ final class SuggestionSettingsModelDisabledAppsTests: XCTestCase {
     /// have synchronously hopped to the main thread. This keeps the tests deterministic without
     /// wrapping each case in a Swift concurrency task, which is the teardown path that was
     /// crashing during hosted test execution.
+    private func runOnMainActor<Result>(
+        _ body: @MainActor () throws -> Result
+    ) rethrows -> Result {
+        if Thread.isMainThread {
+            return try MainActor.assumeIsolated(body)
+        }
+
+        return try DispatchQueue.main.sync {
+            try MainActor.assumeIsolated(body)
+        }
+    }
+}
+
+/// Domain override persistence belongs in `SuggestionSettingsModel`, not in the coordinator,
+/// because these are durable user-authored rules that multiple UI surfaces need to share.
+final class SuggestionSettingsModelDomainOverridesTests: XCTestCase {
+    private static var retainedModels: [SuggestionSettingsModel] = []
+    private var userDefaultsSuites: [(suiteName: String, userDefaults: UserDefaults)] = []
+
+    override func tearDown() {
+        for suite in userDefaultsSuites {
+            suite.userDefaults.removePersistentDomain(forName: suite.suiteName)
+        }
+        userDefaultsSuites.removeAll()
+        super.tearDown()
+    }
+
+    func test_domainOverrideRules_surviveModelRecreation() {
+        runOnMainActor {
+            let userDefaults = makeUserDefaults()
+            let model = makeModel(userDefaults: userDefaults)
+
+            model.setDomainOverride(for: browserDomain(), state: .disabled)
+
+            let reloadedModel = makeModel(userDefaults: userDefaults)
+
+            XCTAssertEqual(
+                reloadedModel.domainOverrideRules,
+                [
+                    DomainOverrideRule(
+                        host: "docs.github.com",
+                        registrableDomain: "github.com",
+                        state: .disabled,
+                        matchScope: .registrableDomain
+                    )
+                ]
+            )
+        }
+    }
+
+    func test_domainOverrideRule_prefersExactHostOverRegistrableDomain() {
+        runOnMainActor {
+            let model = makeModel()
+
+            model.setDomainOverride(for: browserDomain(), state: .enabled)
+            let registrableRuleID = model.domainOverrideRules[0].id
+            model.setDomainOverrideUsesExactHost(
+                ruleID: registrableRuleID,
+                usesExactHost: true
+            )
+            model.setDomainOverride(
+                for: FocusedBrowserDomainIdentity(
+                    applicationName: "Google Chrome",
+                    bundleIdentifier: "com.google.Chrome",
+                    pageURL: URL(string: "https://github.com")!,
+                    host: "github.com",
+                    registrableDomain: "github.com"
+                ),
+                state: .disabled
+            )
+
+            XCTAssertEqual(
+                model.domainOverrideRule(for: browserDomain())?.matchScope,
+                .exactHost
+            )
+            XCTAssertEqual(
+                model.domainOverrideRule(for: browserDomain())?.state,
+                .enabled
+            )
+        }
+    }
+
+    func test_snapshotPublisher_emitsWhenDomainOverrideRulesChange() {
+        let expectation = expectation(description: "snapshot emits after domain rule changes")
+        var cancellables = Set<AnyCancellable>()
+
+        runOnMainActor {
+            let model = makeModel()
+
+            model.snapshotPublisher
+                .dropFirst()
+                .sink { snapshot in
+                    XCTAssertEqual(snapshot.domainOverrideRules.count, 1)
+                    XCTAssertEqual(
+                        snapshot.domainOverrideRules.first?.displayDomain,
+                        "github.com"
+                    )
+                    expectation.fulfill()
+                }
+                .store(in: &cancellables)
+
+            model.setDomainOverride(for: browserDomain(), state: .disabled)
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        _ = cancellables
+    }
+
+    @MainActor
+    private func makeModel(
+        userDefaults: UserDefaults? = nil
+    ) -> SuggestionSettingsModel {
+        let model = SuggestionSettingsModel(
+            configuration: .standard,
+            userDefaults: userDefaults ?? makeUserDefaults()
+        )
+        Self.retainedModels.append(model)
+        return model
+    }
+
+    private func makeUserDefaults() -> UserDefaults {
+        let suiteName = "SuggestionSettingsModelDomainOverridesTests-\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Expected an isolated UserDefaults suite")
+            return .standard
+        }
+
+        userDefaults.removePersistentDomain(forName: suiteName)
+        userDefaultsSuites.append((suiteName: suiteName, userDefaults: userDefaults))
+        return userDefaults
+    }
+
+    private func browserDomain() -> FocusedBrowserDomainIdentity {
+        FocusedBrowserDomainIdentity(
+            applicationName: "Google Chrome",
+            bundleIdentifier: "com.google.Chrome",
+            pageURL: URL(string: "https://docs.github.com/en")!,
+            host: "docs.github.com",
+            registrableDomain: "github.com"
+        )
+    }
+
     private func runOnMainActor<Result>(
         _ body: @MainActor () throws -> Result
     ) rethrows -> Result {
