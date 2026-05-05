@@ -1,29 +1,20 @@
 # Contributing To Tabby
 
-Thanks for helping improve Tabby. This guide assumes you are comfortable with Swift and macOS
-development, but not necessarily familiar with this codebase yet.
+Thanks for helping improve Tabby. This guide is the contributor entry point for local setup,
+validation, and codebase orientation.
 
-## Project Context
+Tabby is a macOS menu bar app that provides on-device inline autocomplete in other apps. The repo
+is split by responsibility so contributors can make small, reviewable changes without spreading
+platform-specific behavior across unrelated layers.
 
-Tabby is a macOS menu bar app that provides on-device inline autocomplete in other apps. Most
-changes touch one of these product areas:
+Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
 
-- [Quality](https://github.com/FuJacob/tabby/issues/13): make suggestions feel native to the user's context.
-- [Control](https://github.com/FuJacob/tabby/issues/14): let users shape when and how Tabby runs.
-- [Trust](https://github.com/FuJacob/tabby/issues/15): make install, update, and model handling safe and legible.
-- [Compat](https://github.com/FuJacob/tabby/issues/16): work reliably across more apps and text surfaces.
+## Before You Start
 
-Before changing app behavior, read [ARCHITECTURE.md](ARCHITECTURE.md). It explains the main
-ownership boundaries:
-
-- `tabby/App/`: app lifecycle, composition, and coordinators.
-- `tabby/UI/`: SwiftUI presentation.
-- `tabby/Services/`: side effects, async work, OS APIs, and runtime boundaries.
-- `tabby/Models/`: shared value types and contracts.
-- `tabby/Support/`: pure rules and low-level helpers.
-
-If you are coming from JavaScript or TypeScript, [SWIFT_FOR_JS_DEVELOPERS.md](SWIFT_FOR_JS_DEVELOPERS.md)
-maps the Swift and macOS concepts used in this repo to familiar web-development ideas.
+- Read [README.md](README.md) for the product overview and end-user setup.
+- Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing the suggestion pipeline, runtime
+  lifecycle, or Accessibility behavior.
+- Check for an existing issue or open one before starting substantial work.
 
 ## Development Prerequisites
 
@@ -31,8 +22,9 @@ You need:
 
 - macOS 26.0 or later for running the app and tests.
 - Xcode with Command Line Tools installed.
-- A local Apple development team configured in Xcode if you want to run the signed app from the IDE.
-- SwiftLint for local lint checks. The CI workflow installs it with Homebrew when missing.
+- A local Apple development team configured in Xcode if you want to launch the signed app from the
+  IDE.
+- SwiftLint for local lint checks. CI installs it with Homebrew when needed.
 
 Apple Silicon is strongly recommended for local model-runtime work.
 
@@ -41,13 +33,32 @@ Apple Silicon is strongly recommended for local model-runtime work.
 Clone the repo and open the project:
 
 ```sh
-git clone git@github.com:FuJacob/tabby.git
+git clone https://github.com/FuJacob/tabby.git
 cd tabby
 open tabby.xcodeproj
 ```
 
 In Xcode, select the `tabby` scheme. If you run from Xcode, set your signing team under
-Signing & Capabilities.
+`Signing & Capabilities`.
+
+## How To Navigate The Repo
+
+Start with these boundaries:
+
+- `tabby/App/`: app lifecycle, composition root, and top-level coordinators
+- `tabby/UI/`: SwiftUI presentation and menu/settings surfaces
+- `tabby/Services/`: OS integrations, async work, permissions, and runtime boundaries
+- `tabby/Models/`: shared value types, state snapshots, and protocol contracts
+- `tabby/Support/`: pure rules, prompt helpers, normalization, and low-level utilities
+
+If you are changing behavior, prefer this order:
+
+1. Pure logic in `Support/`
+2. Side-effectful boundaries in `Services/`
+3. Orchestration in `App/`
+4. Presentation in `UI/`
+
+That separation keeps behavior easier to test and reduces regressions in Accessibility-heavy code.
 
 ## Build
 
@@ -63,8 +74,9 @@ xcodebuild \
   build
 ```
 
-`CODE_SIGNING_ALLOWED=NO` keeps the command useful on machines that do not have the project owner's
-signing certificate. Use Xcode with your own team selected when you need to launch the app locally.
+`CODE_SIGNING_ALLOWED=NO` keeps the build command usable on machines that do not have the project
+owner's signing certificate. Use Xcode with your own team selected when you need to launch the app
+locally.
 
 ## Run
 
@@ -75,10 +87,11 @@ From Xcode:
 3. Build and run.
 4. Complete onboarding.
 5. Grant Accessibility and Input Monitoring when prompted.
-6. Pick Apple Intelligence if available, or use the Open Source engine with a downloaded GGUF model.
+6. Pick Apple Intelligence if available, or use the Open Source engine with a downloaded GGUF
+   model.
 
-Some host apps expose incomplete Accessibility data. If a suggestion does not appear or the overlay is
-misplaced, start by reading the focus and geometry notes in [ARCHITECTURE.md](ARCHITECTURE.md).
+If a suggestion does not appear or the overlay is misplaced, start with the focus and geometry
+sections in [ARCHITECTURE.md](ARCHITECTURE.md) before changing coordinator logic.
 
 ## Test
 
@@ -92,7 +105,7 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-The test workflow runs on a macOS 26 runner because the app's deployment target is macOS 26.0.
+The CI test workflow runs on a macOS 26 runner because the app deployment target is macOS 26.0.
 
 ## Lint
 
@@ -102,45 +115,35 @@ Run SwiftLint locally:
 swiftlint --reporter github-actions-logging
 ```
 
-The current CI gate is warnings-only. Treat warnings as cleanup work, but do not bury functional PRs
-in unrelated style rewrites.
+The current CI lint gate is warnings-only. Treat warnings as cleanup work, but avoid bundling
+unrelated style rewrites into functional PRs.
 
-## Making Changes
+## Pull Requests
 
-Prefer the smallest change that fits the architecture:
+Before opening or updating a PR:
 
-1. Put deterministic rules in `tabby/Support/`.
-2. Put OS, runtime, IO, and permission boundaries in `tabby/Services/`.
-3. Put orchestration in `tabby/App/Coordinators/`.
-4. Put rendering and user controls in `tabby/UI/`.
-
-When changing autocomplete behavior, preserve the separation between request construction,
-generation, normalization, session reconciliation, overlay presentation, and insertion. That makes
-the behavior easier to test and keeps Accessibility-specific failures from spreading across the app.
-
-## Pull Request Checklist
-
-Before opening a PR:
-
-- Link the issue the PR addresses.
+- Keep the change scoped to one problem.
 - Explain what changed and why.
-- Include screenshots or recordings for visible UI changes.
-- Run the relevant local command:
-  - build for compile-only changes
-  - tests for pure logic or pipeline behavior
-  - SwiftLint for style-sensitive changes
-- Call out skipped validation and why it was skipped.
+- Link the relevant issue with `Fixes #N` or `Refs #N`.
+- Include screenshots or short recordings for visible UI changes.
+- Run the relevant validation command for your change:
+  - build for compile-only or docs-adjacent changes
+  - tests for logic or pipeline behavior
+  - SwiftLint for style-sensitive edits
+- Call out skipped validation explicitly.
 - Keep unrelated refactors out of the PR.
-- Update docs when changing setup, release, permissions, user-facing behavior, or architecture.
+- Update docs when setup, release flow, permissions, architecture, or user-facing behavior changes.
+
+Use the repository PR template and replace every placeholder section with concrete content grounded
+in the actual diff and validation output.
 
 ## CI Expectations
 
 PRs into `main` run:
 
-- Build: `xcodebuild` compile check.
-- Tests: `xcodebuild test`.
-- Lint: SwiftLint warnings surfaced as GitHub annotations.
+- Build: `xcodebuild` compile check
+- Tests: `xcodebuild test`
+- Lint: SwiftLint warnings surfaced as GitHub annotations
 
-If CI fails, fix the root cause in the same PR when it is related to your change. If the failure is
-unrelated infrastructure noise, note that clearly in the PR.
-
+If CI fails because of your change, fix the root cause in the same PR. If the failure is unrelated
+infrastructure noise, note that clearly in the PR description.
