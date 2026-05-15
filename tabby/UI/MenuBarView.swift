@@ -34,6 +34,10 @@ struct MenuBarView: View {
         .padding(16)
         .frame(width: 340)
         .onAppear {
+            // The menu is a status surface, so re-read system permissions whenever it opens.
+            // The background poll eventually catches changes too, but this avoids showing stale
+            // "Grant" rows after the user just updated System Settings.
+            permissionManager.refresh()
             refreshAppleIntelligenceAvailabilityIfNeeded()
         }
         .onChange(of: suggestionSettings.selectedEngine) { _, _ in
