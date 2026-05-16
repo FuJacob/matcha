@@ -1,5 +1,8 @@
 import Foundation
+
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 
 /// File overview:
 /// Adapts Apple's on-device Foundation Models framework to Tabby's existing
@@ -13,6 +16,8 @@ import FoundationModels
 /// The important behavioral nuance is that Foundation Models has a dedicated instructions channel.
 /// We use that to tell the system model "this is inline autocomplete, not a chat reply," because a
 /// bare text prefix like "hello" otherwise invites conversational continuations.
+#if canImport(FoundationModels)
+@available(macOS 26.0, *)
 @MainActor
 final class FoundationModelSuggestionEngine {
     private let availabilityService: FoundationModelAvailabilityService
@@ -31,8 +36,12 @@ final class FoundationModelSuggestionEngine {
         do {
             let startTime = Date()
             let prompt = FoundationModelPromptRenderer.prompt(for: request)
+            guard let model = availabilityService.systemLanguageModel else {
+                throw SuggestionClientError.unavailable(availabilityService.userVisibleMessage)
+            }
+
             let session = LanguageModelSession(
-                model: availabilityService.model,
+                model: model,
                 instructions: FoundationModelPromptRenderer.sessionInstructions(for: request)
             )
             let response = try await session.respond(
@@ -119,4 +128,6 @@ final class FoundationModelSuggestionEngine {
     }
 }
 
+@available(macOS 26.0, *)
 extension FoundationModelSuggestionEngine: SuggestionGenerating {}
+#endif

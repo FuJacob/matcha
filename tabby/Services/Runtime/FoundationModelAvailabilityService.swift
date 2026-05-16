@@ -1,6 +1,9 @@
 import Combine
 import Foundation
+
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 
 /// Describes whether the Apple on-device language model can be used right now.
 /// We keep the enum small because the rest of the app only needs a binary decision plus a
@@ -35,21 +38,20 @@ enum FoundationModelAvailabilityState: Equatable, Sendable {
 final class FoundationModelAvailabilityService: ObservableObject {
     @Published private(set) var state: FoundationModelAvailabilityState
 
-    let model: SystemLanguageModel
+    private let provider: any FoundationModelAvailabilityProviding
 
-    init() {
-        self.model = SystemLanguageModel(
-            useCase: .general,
-            guardrails: .permissiveContentTransformations
-        )
-        self.state = Self.map(self.model.availability)
+    init(provider: (any FoundationModelAvailabilityProviding)? = nil) {
+        let resolvedProvider = provider ?? Self.makeDefaultProvider()
+
+        self.provider = resolvedProvider
+        self.state = resolvedProvider.currentState
     }
 
     /// Refreshes the cached availability before a generation attempt.
     /// Availability can change at runtime if the user enables Apple Intelligence or if the model
     /// finishes downloading in the background.
     func refresh() {
-        state = Self.map(model.availability)
+        state = provider.refresh()
     }
 
     var isAvailable: Bool {
@@ -58,6 +60,69 @@ final class FoundationModelAvailabilityService: ObservableObject {
 
     var userVisibleMessage: String {
         state.summary
+    }
+}
+
+@MainActor
+protocol FoundationModelAvailabilityProviding {
+    var currentState: FoundationModelAvailabilityState { get }
+
+    func refresh() -> FoundationModelAvailabilityState
+}
+
+@MainActor
+private struct UnsupportedFoundationModelAvailabilityProvider: FoundationModelAvailabilityProviding {
+    let currentState: FoundationModelAvailabilityState
+
+    init(reason: String) {
+        currentState = .unavailable(reason)
+    }
+
+    func refresh() -> FoundationModelAvailabilityState {
+        currentState
+    }
+}
+
+extension FoundationModelAvailabilityService {
+    private static func makeDefaultProvider() -> any FoundationModelAvailabilityProviding {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            return SystemFoundationModelAvailabilityProvider()
+        }
+        #endif
+
+        return UnsupportedFoundationModelAvailabilityProvider(
+            reason: "Apple Intelligence requires macOS 26 or later. Use Open Source on this Mac."
+        )
+    }
+}
+
+#if canImport(FoundationModels)
+@available(macOS 26.0, *)
+extension FoundationModelAvailabilityService {
+    var systemLanguageModel: SystemLanguageModel? {
+        (provider as? SystemFoundationModelAvailabilityProvider)?.model
+    }
+}
+
+@available(macOS 26.0, *)
+@MainActor
+private final class SystemFoundationModelAvailabilityProvider: FoundationModelAvailabilityProviding {
+    let model: SystemLanguageModel
+
+    init() {
+        model = SystemLanguageModel(
+            useCase: .general,
+            guardrails: .permissiveContentTransformations
+        )
+    }
+
+    var currentState: FoundationModelAvailabilityState {
+        Self.map(model.availability)
+    }
+
+    func refresh() -> FoundationModelAvailabilityState {
+        Self.map(model.availability)
     }
 
     private static func map(
@@ -77,3 +142,4 @@ final class FoundationModelAvailabilityService: ObservableObject {
         }
     }
 }
+#endif
